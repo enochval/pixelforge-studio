@@ -1,0 +1,19 @@
+includes:
+    - vendor/larastan/larastan/extension.neon
+
+parameters:
+    level: 6
+
+    # Pest test files are closures with a dynamically bound $this; PHPStan cannot
+    # model them without false positives, so analysis covers application code only.
+    paths:
+        - app
+        - database
+
+    ignoreErrors:
+        # Unused Breeze scaffolding. User deliberately does NOT implement
+        # MustVerifyEmail: doing so would enforce verification on the dashboard
+        # and put a mail round-trip in front of anyone reviewing the deployed app.
+        -
+            identifier: argument.type
+            path: app/Http/Controllers/Auth/VerifyEmailController.php
