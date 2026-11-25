@@ -1,6 +1,8 @@
 # Architecture
 
-This document records the structure of the application and the reasoning behind the choices that shaped it. It describes the design as a whole; `docs/PLAN.md` tracks which parts are built.
+This document records how the code is organised: the layers, the patterns applied on each side of the stack, and the reasoning behind the choices that shaped them.
+
+[SYSTEM-DESIGN.md](SYSTEM-DESIGN.md) covers the same system from the runtime side — components, request lifecycles, failure modes and behaviour under load. [ERD.md](ERD.md) covers the data model. [PLAN.md](PLAN.md) tracks which parts are built.
 
 ## Context
 
@@ -45,6 +47,8 @@ This is a deliberate narrowing. The cost displayed before submission is computed
 Every movement of money is an immutable row in `ledger_entries`. Nothing is updated or deleted; a correction is a new compensating entry. `users.balance_micros` is a cached sum maintained in the same transaction as the entry that changes it, and an artisan command asserts that the cache and the ledger agree.
 
 This makes a balance reconstructible at any point in time, and it makes "charged exactly once" a property the schema enforces rather than a claim the application makes.
+
+The tables, their constraints and the reasoning behind them are set out in [ERD.md](ERD.md).
 
 ---
 

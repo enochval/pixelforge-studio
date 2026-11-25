@@ -59,7 +59,7 @@ Pure PHP in `app/Domain/`. No Eloquent, no facades, no container — so it is un
 
 ## Phase 2 — Schema and models
 
-Migrations for `generations`, `webhook_events` and `ledger_entries`, plus `balance_micros` on users. Every index carries a comment explaining what query or guarantee it serves. Models, casts, factories.
+Implements the model documented in [ERD.md](ERD.md): migrations for `generations`, `webhook_events` and `ledger_entries`, plus `balance_micros` on users. Every index carries a comment explaining what query or guarantee it serves. Models, casts, factories.
 
 **Tests — these exercise the database rather than the code**
 - `duplicate_provider_event_id_is_rejected_by_the_database`
