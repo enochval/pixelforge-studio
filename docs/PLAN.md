@@ -59,6 +59,8 @@ Pure PHP in `app/Domain/`. No Eloquent, no facades, no container — so it is un
 
 ## Phase 2 — Schema and models
 
+**Status: complete.**
+
 Implements the model documented in [ERD.md](ERD.md): migrations for `generations`, `webhook_events` and `ledger_entries`, plus `balance_micros` on users. Every index carries a comment explaining what query or guarantee it serves. Models, casts, factories.
 
 **Tests — these exercise the database rather than the code**
@@ -67,6 +69,12 @@ Implements the model documented in [ERD.md](ERD.md): migrations for `generations
 - `webhook_event_can_be_stored_for_an_unknown_generation`
 
 The reason to test constraints directly is that the guarantees belong in the schema, not in application code. If a constraint is later dropped, a test fails rather than money quietly going missing.
+
+Beyond the two unique indexes, check constraints hold the status vocabulary, the sign of each ledger kind, and the agreement between a generation's outcome and its recorded costs, so a half-applied outcome cannot be written by any path.
+
+**Closes with:** 23 constraint tests and 122 passing overall.
+
+Two things surfaced while writing them. Postgres aborts the surrounding transaction when a statement fails, and `RefreshDatabase` runs each test inside one — so asserting that a write is refused and then querying the result needs the attempt wrapped in a savepoint. And `balance_micros` is deliberately absent from the model's fillable attributes, because a balance must never be settable from request input.
 
 ---
 

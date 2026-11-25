@@ -127,11 +127,32 @@ Deliveries that fail signature verification are rejected and **not** stored. Sto
 | `ledger_entries (generation_id, kind) WHERE generation_id IS NOT NULL` | partial unique | A second charge for a generation is refused by the database. Partial because credit purchases have no generation. |
 | `generations (provider_generation_id)` | unique | Webhook lookup, and prevents a retried submission registering twice. |
 | `generations (idempotency_key)` | unique | One submission per key. |
-| `generations (user_id, created_at DESC)` | composite | The history view. Ordered so one index serves both the filter and the sort. |
+| `generations (user_id, created_at)` | composite | The history view. Columns in that order so one index serves both the filter and the sort. No descending variant is needed: Postgres traverses a b-tree in either direction, so this also satisfies `ORDER BY created_at DESC`. |
 | `generations (submitted_at) WHERE status IN ('creating','queued','processing')` | partial | The reconciler. Rows leave the index when they reach an outcome, so it stays the size of the in-flight set regardless of how large the table grows. |
+| `webhook_events (provider_generation_id)` | plain | Matching a delivery to its generation, and finding orphans once an identifier is known. |
+| `webhook_events (received_at) WHERE processed_at IS NULL` | partial | The unprocessed backlog, oldest first. A processed event is never looked up this way. |
 | `ledger_entries (user_id, created_at)` | composite | Balance derivation and the per-user daily grouping in the operator report. |
 
-The partial index on in-flight generations is the one that changes behaviour at scale. A plain index on `status` would grow with the table and spend most of its size on rows that will never be polled again.
+The two partial indexes are the ones that change behaviour at scale. Their plain equivalents would grow with the table and spend most of their size on rows that will never be read through them again — generations that have already reached an outcome, and events that have already been handled.
+
+---
+
+## Check constraints
+
+Vocabularies and invariants are held in the schema as well as in the enums above it, so no path — a migration, a console command, a direct `UPDATE` — can write a row the application would consider impossible.
+
+| Constraint | Refuses |
+|---|---|
+| `generations_status_check` | A status outside the five the lifecycle defines |
+| `generations_status_rank_check` | A rank outside 0–3 |
+| `generations_amounts_non_negative_check` | A negative estimate, provider cost or charge |
+| `generations_costs_match_outcome_check` | A succeeded generation with no recorded cost, or an unsuccessful one that carries a charge |
+| `ledger_entries_kind_check` | A kind outside the four the ledger defines |
+| `ledger_entries_direction_check` | An entry whose sign contradicts its kind — a charge that credits a user, or a top-up that debits one |
+| `ledger_entries_generation_required_check` | Any entry other than a top-up that settles no generation |
+| `webhook_events_outcome_check` | An outcome outside `applied`, `ignored_stale` and `orphaned` |
+
+`generations_costs_match_outcome_check` is the one that does the most work. A generation is either priced and successful or unpriced and not, which makes a half-applied outcome — a status written without its costs, or costs written without the status — impossible to record rather than merely unlikely.
 
 ---
 
@@ -148,6 +169,12 @@ The association is therefore resolved in application code, and an event that can
 Postgres `NUMERIC` would hold these values exactly. Integers were chosen because the guarantee then extends beyond the database: a `bigint` arrives in PHP as an `int` and cannot be silently coerced into a float by an arithmetic operation, whereas a `NUMERIC` arrives as a string and the first careless `+` turns it into one.
 
 One micro-dollar is a ten-thousandth of a cent, which is finer than any amount the provider reports, so nothing is lost by the choice.
+
+### A balance may go negative, and no constraint forbids it
+
+A hold reserves the estimate, but a generation's actual cost can exceed it: the output token count is not knowable in advance. When that happens the release returns the estimate and the charge takes the true amount, which can leave the balance slightly below zero.
+
+Refusing the charge would be the worse outcome. The provider has already billed for the work, so the obligation exists whether or not it is recorded, and a constraint rejecting it would fail the transaction that is trying to record the truth. The hold bounds the exposure; it does not eliminate it.
 
 ### status and status_rank are both stored
 
