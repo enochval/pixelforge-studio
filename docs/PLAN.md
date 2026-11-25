@@ -38,6 +38,8 @@ One configuration bug surfaced here and is worth recording, because it fails qui
 
 ## Phase 1 — Domain layer
 
+**Status: complete.**
+
 Pure PHP in `app/Domain/`. No Eloquent, no facades, no container — so it is unit-testable in milliseconds and the pricing rules can be read without reference to the framework.
 
 - **`Money`** — integer micro-dollars (1 USD = 1,000,000). Immutable. `fromUsd()` converts published rate strings via `bcmath`; `withMarkup(int $bps)` applies the markup and rounds half-up exactly once.
@@ -48,6 +50,10 @@ Pure PHP in `app/Domain/`. No Eloquent, no facades, no container — so it is un
 - `money_never_loses_precision_converting_published_rate_strings` — table-driven over every published rate. Float conversion of a decimal rate string silently truncates; this asserts it does not happen.
 - `markup_rounds_half_up_exactly_once` — asserts that marking up a raw cost differs from marking up an already-rounded cost, pinning the rounding point so it cannot drift later.
 - `state_transition_matrix` — every from/to pair, including the transitions that must be refused.
+
+**Closes with:** 73 unit tests covering the arithmetic and the transition matrix, running in 0.16 seconds with no database and no booted application, plus two feature tests asserting the shipped rate configuration is well formed and can price every size and quality it declares.
+
+**Rates are provisional** until the published table is confirmed. They are read as configuration, so correcting them changes `config/pixelforge.php` alone. The unit tests fix their own rates rather than reading that file, so a corrected rate cannot quietly invalidate the arithmetic they assert.
 
 ---
 
