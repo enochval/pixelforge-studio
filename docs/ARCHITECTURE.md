@@ -27,10 +27,26 @@ app/
 ├── Http/              Controllers, form requests, middleware. Validate and delegate.
 ├── Actions/           Use cases. One public method each.
 ├── Domain/            Plain PHP. No Eloquent, no facades, no container.
-├── Providers/         The provider gateway and its implementations.
+├── Integrations/      The provider gateway and everything that talks to it.
 ├── Jobs/              Queued work.
+├── Providers/         Laravel service providers. Bindings only.
 └── Console/Commands/  Scheduled work.
 ```
+
+The provider gateway sits in `Integrations/` rather than `Providers/`, which in a Laravel application means service providers and nothing else:
+
+```
+app/Integrations/Pixelforge/
+├── Contracts/ImageProvider.php   the boundary the rest of the application depends on
+├── PixelforgeClient.php          HTTP transport
+├── FakeImageProvider.php         in-memory implementation for tests
+├── RetryPolicy.php               whether a failed request is repeated, and when
+├── ConcurrencyLimiter.php        how many requests may be in flight at once
+├── Data/                         the shapes crossing the boundary
+└── Exceptions/                   one type per failure category
+```
+
+Transport, retry policy and concurrency control are three classes rather than one, because each is a separate decision and each is testable without the other two. The retry policy in particular takes an injected source of randomness, so its jitter can be asserted with a seed instead of inferred from the timing of a live call.
 
 `Money`, `Pricing` and `GenerationState` are ordinary PHP objects. They can be exercised without a database, an HTTP client or a booted application, which means the pricing rules — the part of the system with the least tolerance for error — are tested in isolation and in milliseconds.
 

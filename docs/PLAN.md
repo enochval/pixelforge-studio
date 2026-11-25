@@ -80,6 +80,8 @@ Two things surfaced while writing them. Postgres aborts the surrounding transact
 
 ## Phase 3 — Provider gateway
 
+**Status: complete against the in-memory implementation.** The HTTP client is written and tested against stubbed responses; its wire format is confirmed when the API documentation is read.
+
 An `ImageProvider` interface with two implementations: `PixelforgeClient` for real calls, and `FakeImageProvider` for tests and local development. Retry policy with full jitter, `Retry-After` handling, a distinct exception type per error category, and a Redis semaphore for the provider's concurrency limit.
 
 Full jitter rather than fixed backoff: when the provider sheds load, fixed backoff retries every queued job at the same instant and reproduces the overload that caused the failure.
@@ -92,6 +94,14 @@ The rest of the application depends on the interface, so this phase is buildable
 - `never_retries_a_422`
 - `concurrency_limit_releases_the_job_rather_than_sleeping_the_worker`
 - `submit_sends_an_idempotency_key_that_survives_retries`
+
+**Closes with:** 47 tests across the retry policy, the HTTP client, the in-memory provider and the concurrency limiter. 169 passing overall.
+
+The gateway sits in `app/Integrations/Pixelforge/` rather than `app/Providers/`, which in a Laravel application means service providers and nothing else.
+
+Transport, retry policy and concurrency control are separate classes because each is a separate decision. The policy is unit-tested with a seeded randomizer, so its jitter is asserted rather than timed, and the limiter is tested against the real Redis, because what it coordinates is behaviour between processes that a mock could not exercise.
+
+Failures are typed by category rather than by status code, since the correct response differs per category and branching on a code at each call site would let those branches drift. A 429 is inspected further: rate limits and concurrency limits can arrive under the same status, and only one of them is improved by waiting.
 
 ---
 

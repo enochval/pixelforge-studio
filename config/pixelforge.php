@@ -70,7 +70,10 @@ return [
     */
 
     'api' => [
-        'base_url' => env('PIXELFORGE_BASE_URL', 'https://api.promptedit.com'),
+        // No default. A fabricated URL would look authoritative and send
+        // requests somewhere unintended; an unset value fails immediately and
+        // says what is missing.
+        'base_url' => env('PIXELFORGE_BASE_URL'),
         'key' => env('PIXELFORGE_API_KEY'),
         'webhook_secret' => env('PIXELFORGE_WEBHOOK_SECRET'),
 
