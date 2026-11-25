@@ -5,52 +5,56 @@ on:
     branches: [main]
   pull_request:
 
-jobs:
-  test:
-    runs-on: ubuntu-latest
+# CI runs through the same Docker Compose stack used for development, rather
+# than installing PHP on the runner. Two reasons: the suite is then executed
+# against the exact PHP version and extension set the application ships with,
+# and the Dockerfile is exercised on every push instead of rotting until it is
+# needed.
 
-    services:
-      postgres:
-        image: postgres:16-alpine
-        env:
-          POSTGRES_DB: pixelforge_test
-          POSTGRES_USER: pixelforge
-          POSTGRES_PASSWORD: secret
-        ports: ["5433:5432"]
-        options: >-
-          --health-cmd "pg_isready -U pixelforge -d pixelforge_test"
-          --health-interval 5s --health-timeout 3s --health-retries 10
-      redis:
-        image: redis:7-alpine
-        ports: ["6380:6379"]
-        options: >-
-          --health-cmd "redis-cli ping"
-          --health-interval 5s --health-timeout 3s --health-retries 10
+jobs:
+  check:
+    name: Lint, analyse, test
+    runs-on: ubuntu-latest
 
     steps:
       - uses: actions/checkout@v4
 
-      - uses: shivammathur/setup-php@v2
-        with:
-          php-version: '8.2'
-          extensions: pdo_pgsql, bcmath, mbstring
-          coverage: none
+      - name: Prepare environment file
+        run: cp .env.example .env
 
-      - name: Cache Composer
-        uses: actions/cache@v4
-        with:
-          path: vendor
-          key: composer-${{ hashFiles('composer.lock') }}
+      - name: Build application image
+        run: docker compose build app
 
-      - run: composer install --no-interaction --prefer-dist --no-progress
+      - name: Install dependencies
+        run: docker compose run --rm --no-deps app composer install --no-interaction --prefer-dist
 
-      - run: cp .env.example .env && php artisan key:generate
+      - name: Generate application key
+        run: docker compose run --rm --no-deps app php artisan key:generate
 
-      - name: Static analysis
-        run: composer analyse
+      - name: Start backing services
+        run: |
+          docker compose up -d postgres redis
+          docker compose ps
 
       - name: Code style
-        run: composer lint
+        run: docker compose run --rm app composer lint
+
+      - name: Static analysis
+        run: docker compose run --rm app composer analyse
 
       - name: Tests
-        run: ./vendor/bin/pest --ci
+        run: docker compose run --rm app ./vendor/bin/pest --ci
+
+      - name: Service logs on failure
+        if: failure()
+        run: docker compose logs
+
+  production-image:
+    name: Production image builds
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build production target
+        run: docker build --target production -t pixelforge:production .

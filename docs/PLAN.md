@@ -20,11 +20,19 @@ Testing is not a phase of its own. Each phase below names the tests that close i
 
 **Status: complete.**
 
-Laravel 12.74, Breeze (Vue 3 + Inertia + Tailwind), Pest, Larastan at level 6, Pint, Postgres 16 and Redis 7 via Docker Compose, and a CI workflow running style, static analysis and tests.
+Laravel 12.74, a Vue 3 + Inertia + Tailwind starter kit, Pest, Larastan at level 6, Pint, and a CI workflow running style, static analysis and tests.
+
+**Everything runs in Docker, PHP included.** Six services: the application, a queue worker, the scheduler, Vite, Postgres 16 and Redis 7. No `Makefile` target uses the host's PHP or Node, so a clone and `make up` produces the same environment on any machine.
+
+The Dockerfile is multi-stage: a base image carrying only the extensions this application needs (`pdo_pgsql`, `bcmath` for converting published rate strings to integers without a float, `pcntl` so queue workers shut down cleanly on a signal, and `opcache`); a `vendor` stage that resolves PHP dependencies once and is reused by the asset build, which depends on Ziggy; and a `production` target with no dev dependencies, no Node and an authoritative classmap. CI builds that production target on every push, so it stays verified rather than assumed.
+
+Queue workers run as their own service rather than inside the web container, so restarting one does not interrupt the other and concurrency scales with `--scale worker=N`.
 
 **The tests run against Postgres, not SQLite.** The properties this application depends on are Postgres properties: partial unique indexes, `SELECT ... FOR UPDATE`, and the behaviour of unique-constraint violations under concurrent writes. SQLite reports those tests as passing without exercising them, which is worse than leaving them untested, because it hides the gap.
 
-**Closes with:** the scaffolding suite green against Postgres and CI running `lint → analyse → test`.
+One configuration bug surfaced here and is worth recording, because it fails quietly. PHPUnit writes its `<env>` entries to `$_ENV` and `putenv()` but not to `$_SERVER`, and Laravel's environment repository reads `$_SERVER` first. Under Compose, which injects `.env` into the container as real environment variables, the test settings were therefore ignored: the suite ran with `SESSION_DRIVER=database`, which breaks authenticated requests because the session write is rolled back with the `RefreshDatabase` transaction, and against the development database rather than the test one. `tests/bootstrap.php` mirrors `$_ENV` over `$_SERVER` before the application boots.
+
+**Closes with:** the starter-kit suite green against Postgres, and CI running `lint → analyse → test` through the same Compose stack used for development.
 
 ---
 

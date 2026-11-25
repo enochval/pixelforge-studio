@@ -1,4 +1,65 @@
+name: pixelforge
+
+# Every PHP and Node process runs in a container. Nothing here depends on what
+# is installed on the host, so a clone plus `make up` produces an identical
+# environment on any machine.
+
+x-app: &app
+  build:
+    context: .
+    target: development
+  # vendor/ is intentionally not a named volume. PHP packages contain no
+  # platform-compiled binaries, so sharing them through the bind mount is safe,
+  # and `make install` runs composer inside the container rather than on the
+  # host. node_modules is a named volume, because esbuild and its peers ship
+  # per-platform binaries that would be wrong for this container.
+  volumes:
+    - .:/app
+  env_file: .env
+  environment:
+    DB_HOST: postgres
+    DB_PORT: 5432
+    REDIS_HOST: redis
+    REDIS_PORT: 6379
+  depends_on:
+    postgres:
+      condition: service_healthy
+    redis:
+      condition: service_healthy
+
 services:
+  app:
+    <<: *app
+    container_name: pixelforge-app
+    ports:
+      - "8000:8000"
+
+  # Queue workers run as their own service rather than inside the web container,
+  # so restarting one does not interrupt the other and so worker concurrency is
+  # scaled with `docker compose up --scale worker=N`.
+  worker:
+    <<: *app
+    container_name: pixelforge-worker
+    command: php artisan queue:work --tries=1 --max-time=3600
+    ports: []
+
+  scheduler:
+    <<: *app
+    container_name: pixelforge-scheduler
+    command: php artisan schedule:work
+    ports: []
+
+  vite:
+    image: node:20-alpine
+    container_name: pixelforge-vite
+    working_dir: /app
+    command: sh -c "npm install && npm run dev -- --host 0.0.0.0"
+    volumes:
+      - .:/app
+      - node_modules:/app/node_modules
+    ports:
+      - "5173:5173"
+
   postgres:
     image: postgres:16-alpine
     container_name: pixelforge-postgres
@@ -10,6 +71,9 @@ services:
       - "5433:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
+      # Creates the test database on first boot so the suite never runs against
+      # development data.
+      - ./docker/postgres/init-test-db.sql:/docker-entrypoint-initdb.d/init-test-db.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U pixelforge -d pixelforge"]
       interval: 5s
@@ -29,3 +93,4 @@ services:
 
 volumes:
   pgdata:
+  node_modules:

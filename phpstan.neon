@@ -11,9 +11,11 @@ parameters:
         - database
 
     ignoreErrors:
-        # Unused Breeze scaffolding. User deliberately does NOT implement
-        # MustVerifyEmail: doing so would enforce verification on the dashboard
-        # and put a mail round-trip in front of anyone reviewing the deployed app.
+        # Unused starter-kit scaffolding. User does not implement MustVerifyEmail,
+        # because the dashboard route is guarded by the `verified` middleware and
+        # implementing it would require every new account to complete an email
+        # round-trip before signing in. Email verification is not a requirement
+        # here, so the controller is left in place and unused rather than wired up.
         -
             identifier: argument.type
             path: app/Http/Controllers/Auth/VerifyEmailController.php
