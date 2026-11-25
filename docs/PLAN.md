@@ -107,6 +107,8 @@ Failures are typed by category rather than by status code, since the correct res
 
 ## Phase 4 — Submit path
 
+**Status: complete.**
+
 `SubmitGeneration` action, `SubmitGenerationToProvider` job, controller and form request.
 
 **The generation row is written and committed before the provider is called.** Otherwise a webhook can arrive for a generation that has no row yet, and the event has nowhere to land.
@@ -115,6 +117,12 @@ Failures are typed by category rather than by status code, since the correct res
 - `generation_row_exists_before_the_provider_is_called`
 - `timeout_marks_the_row_needs_reconcile_and_does_not_resubmit` — a timeout is an unknown outcome, not a failure; resubmitting risks a second generation the user pays for.
 - `exhausted_retries_mark_the_generation_failed_and_charge_nothing`
+
+**Closes with:** 22 tests covering the action, the job and the endpoint. 191 passing overall.
+
+Three decisions worth noting. The job is dispatched `afterCommit`, because a job queued inside an uncommitted transaction can start before the row it refers to is visible — or, after a rollback, refer to a row that never existed. The idempotency key is stored on the generation rather than minted inside the job, so every attempt presents the same key; a key generated per attempt would turn retrying into a way to create a second generation rather than a way to avoid one. And `WithoutOverlapping` discards a blocked duplicate rather than releasing it, since whichever job holds the lock is already doing the work the duplicate would repeat.
+
+The tests fake the queue in `beforeEach`. The test connection is synchronous, so a dispatched job would otherwise run inside the action that queued it, and a failure staged for the job would be consumed before the test reached it — which is exactly what happened on the first run.
 
 ---
 
