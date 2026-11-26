@@ -232,7 +232,15 @@ Each guard was checked by removing it and confirming a test fails: without the p
 
 ## Phase 8 — Deployment
 
-Deployed to Laravel Cloud with a separate API key for the deployed environment, a queue worker and the scheduler running, and the webhook endpoint registered. Seeded with real generations, including deliberate failures and duplicate deliveries.
+**Status: complete.** Live at https://pixelforge-studio-production-unqkoa.laravel.cloud
+
+Laravel Cloud, with a separate API key for the deployed environment so its usage report
+describes only production — and so the reconciliation starts from zero rather than
+inheriting a discrepancy from local testing. A queue worker and the scheduler run as their
+own processes: without the worker nothing leaves `creating`, because the provider is never
+called from a web request, and without the scheduler a lost webhook is lost permanently.
+
+Deployment required no change to the code.
 
 **Closes with:** recorded provider costs matching `GET /v1/usage` for that key exactly.
 
@@ -316,12 +324,22 @@ README covering the API behaviours the design depends on, the schema, the two fl
 
 Verified against the **deployed** application, not a local environment:
 
-- [ ] A duplicate webhook delivery results in exactly one ledger entry.
-- [ ] A failed generation is recorded as failed and charged nothing.
-- [ ] `SUM(ledger_entries.amount_nanos)` equals `users.balance_nanos` for every user.
-- [ ] Recorded provider costs match `GET /v1/usage` exactly for the deployed key.
-- [ ] No generation is stuck in a non-terminal state.
-- [ ] The full suite passes, static analysis is clean, and CI is green.
+- [x] A duplicate webhook delivery results in exactly one ledger entry.
+- [x] A failed generation is recorded as failed and charged nothing. A `[fail]` generation
+      quoted $0.021856250 and was charged nothing; its hold was placed and released, which
+      is why the arithmetic below closes exactly.
+- [x] `SUM(ledger_entries.amount_nanos)` equals `users.balance_nanos` for every user.
+      $1.00 purchased, $0.486815625 charged across two successful generations, balance
+      $0.513184375 — to the digit.
+- [x] Recorded provider costs match `GET /v1/usage` exactly for the deployed key.
+      $0.389452500 on both sides, **difference $0.000000000.**
+- [x] No generation is stuck in a non-terminal state.
+- [x] The full suite passes, static analysis is clean, and CI is green.
+
+Also verified on the deployment: the webhook endpoint refuses an unsigned delivery and a
+forged signature with 400, both applications are reachable by the right account and refused
+to the wrong one, and a generation resolves in seconds rather than minutes — which is what
+distinguishes a webhook arriving from the reconciler covering for one that did not.
 
 ---
 

@@ -15,7 +15,45 @@ exactly what it cost, or not at all.**
 
 ---
 
-## Running it
+## Live at https://pixelforge-studio-production-unqkoa.laravel.cloud
+
+Two accounts, because there are **two applications** and neither can reach the other.
+Both passwords are `password`.
+
+| Sign in as | To see |
+|---|---|
+| `demo@pixelforge.test` | **Studio** — generate images, buy credit with a simulated card |
+| `operator@pixelforge.test` | **Console** — spend, provider cost, profit, and the reconciliation |
+
+Signing in lands on whichever application the account belongs to, so there is nothing to
+navigate to. **`/register` also works** if you would rather make your own customer account —
+new registrations are customers, and an operator cannot be created through the interface.
+
+An operator cannot generate, and a customer gets a 403 on the console. That is deliberate:
+an account that reads every user's margin should not also be spending on the same balance,
+or a figure in the console would be partly the operator's own activity.
+
+The credentials are published on purpose, for a demonstration holding no real data and no
+real money. Nothing here would survive contact with a real user base, and the role check
+is a Gate rather than a password, so tightening access later is a change to one policy.
+
+### Worth trying, in order
+
+1. **Type a prompt.** The price appears as *"up to $0.xxxx"* and moves as you change the
+   shape or the detail. It is computed by the same class that performs the charge.
+2. **Generate.** The card shimmers, then fills. It resolves in seconds because a real
+   webhook arrives; if you ever see one take two minutes, that is the reconciler doing the
+   work instead, which is also correct.
+3. **Put `[fail]` in a prompt.** The provider accepts it and then fails it. Marked failed,
+   **charged nothing**, balance unchanged.
+4. **Buy credit.** The test cards are listed on the page: `4242…` succeeds, three others
+   decline in different ways. A decline leaves the balance untouched.
+5. **Then the console.** The reconciliation at the top compares our record of provider cost
+   against `GET /v1/usage`. It should read **`0.000000000`**.
+
+---
+
+## Running it locally
 
 Everything runs in Docker. Nothing uses the host's PHP or Node.
 
@@ -24,17 +62,7 @@ make up          # build, install, start every service, migrate
 make seed-demo   # two demo accounts, both with password "password"
 ```
 
-Then open **http://localhost:8000**.
-
-| Account | Sees |
-|---|---|
-| `demo@pixelforge.test` | **Pixelforge Studio** — generate images, buy credit |
-| `operator@pixelforge.test` | **Pixelforge Console** — spend, margin and reconciliation |
-
-Two accounts because there are **two applications**, and neither can reach the other. An
-operator cannot generate: an account that reads every user's margin should not also be
-spending on the same balance, or a figure in the console would be partly the operator's own
-activity. Signing in lands on whichever application the account belongs to.
+Then open **http://localhost:8000**, with the same two accounts as above.
 
 | | |
 |---|---|
