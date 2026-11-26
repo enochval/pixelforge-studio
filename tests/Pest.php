@@ -1,5 +1,8 @@
 <?php
 
+use App\Domain\Money;
+use App\Models\User;
+use App\Support\Ledger;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
@@ -44,7 +47,20 @@ expect()->extend('toBeOne', function () {
 |
 */
 
-function something()
+/**
+ * A user with credit, funded through the ledger.
+ *
+ * Submitting now requires a balance that covers the quote, so most tests need
+ * a funded user rather than a bare one. The top-up goes through Ledger rather
+ * than setting the column, for the same reason production does: a balance
+ * written directly is money with no entry behind it, and the invariant that
+ * the cache equals the sum of the ledger is asserted in this suite.
+ */
+function fundedUser(string $credit = '10.00', array $attributes = []): User
 {
-    // ..
+    $user = User::factory()->create($attributes);
+
+    app(Ledger::class)->topUp($user, Money::fromUsd($credit));
+
+    return $user->refresh();
 }

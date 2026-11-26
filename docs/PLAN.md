@@ -240,24 +240,61 @@ Deployed to Laravel Cloud with a separate API key for the deployed environment, 
 
 ## Phase 9 — Credit balances
 
-Holds and settlement rather than a direct deduction: a `hold` for the estimate at submit, then `hold_release` plus `charge` on success, or `hold_release` alone on failure. A failed generation therefore costs nothing, and the user's money is reserved only for as long as the generation runs.
+**Status: complete.** 12 tests for the ledger mechanics, plus 15 covering the screens in phase 10.
 
-Affordability is enforced by a conditional `UPDATE ... WHERE balance_nanos >= :amount` checked against the affected row count, so the check and the deduction are a single atomic statement rather than a read followed by a write.
+The brief asks for three things here: track a balance, **add a "Buy credits" button** that adds credit as a fake purchase, and block generating when a user cannot afford it. All three are built. The button offers a fixed set of amounts chosen server-side, because an amount a client can name is an amount a client can forge — and the purchase goes through `Ledger::topUp()` like every other movement, so the balance invariant holds for bought credit too.
+
+Holds and settlement rather than a direct deduction: a `hold` for the quoted ceiling at submission, then `hold_release` plus `charge` on success, or `hold_release` alone on failure. A failed generation therefore costs nothing — the pair nets to zero — and a user's money is reserved only while the generation runs. Because the quote is a ceiling, a user can never be charged more than they agreed to.
+
+Affordability is a conditional `UPDATE ... WHERE balance_nanos >= :amount` checked against the affected row count, so the check and the deduction are one atomic statement. A read followed by a write would let two concurrent submissions both see the same balance and both decide it was sufficient.
+
+All ledger writes go through `App\Support\Ledger`, which is the only place money moves. Each operation writes an entry and adjusts the cached balance in the same transaction, because a path that moved one without the other would leave a balance that cannot be explained — and a balance that cannot be explained is indistinguishable from a charging bug when a user asks about it. Each is idempotent through the unique index on `(generation_id, kind)` rather than by checking first, which matters because **three** paths legitimately settle the same generation: the webhook, the reconciler abandoning it, and a submission that failed outright.
+
+`pixelforge:verify-balances` asserts the invariant in SQL and exits non-zero on any disagreement, so it works as a deployment gate. It found a real violation on its first run: the demo-user command had been setting `balance_nanos` directly, which is money with no entry behind it. Credit now enters only through `Ledger::topUp()`.
+
+Two orderings turned out to matter. The hold is placed **after** the generation row exists, because the schema requires every entry other than a top-up to name a generation. And the hold entry is written **before** the balance moves, so a refused hold rolls back with it — moving the balance first and then failing to record why would leak money.
 
 **Tests**
 - `two_concurrent_submits_cannot_both_spend_the_same_balance`
+- `a_user_can_spend_down_to_exactly_zero` — the check is `>=`, not `>`
 - `failed_generation_releases_the_hold_in_full`
-- `balance_cache_always_equals_the_sum_of_the_ledger` — over a randomised sequence of operations
+- `a_submission_that_never_reached_the_provider_releases_the_hold`
+- `an_abandoned_generation_releases_the_hold`
+- `the_same_hold_is_never_released_twice`
+- `balance_cache_always_equals_the_sum_of_the_ledger` — over a randomised sequence of submits, successes, failures, abandonments and top-ups across several users
+
+Both mechanisms were checked by removing them: without the affordability condition three tests fail, and without the release in `ApplyProviderEvent` two do.
 
 ---
 
 ## Phase 10 — Operator report
 
-Credit spend, provider cost and profit by day and by user, grouped in SQL rather than in PHP. Includes a reconciliation row comparing recorded provider costs against `GET /v1/usage` and showing the difference.
+**Status: complete.** 12 tests for the report, 15 for the screens and the authorisation.
+
+The brief asks for **a page for the operators** showing credit spend, provider costs and profit per day and per user, with provider costs matching `GET /v1/usage`. That is `/operator`, gated behind a `view-operator-report` ability. `pixelforge:report` gives the same figures on the command line, which is what a deployment gate or an on-call check wants rather than a browser.
+
+Authorisation reads a configured list of operator emails rather than a role column. A roles table, a pivot and a seeder would be three more things to maintain to express a list that currently has one entry, and because the check sits behind a Gate, moving to a column later is a change to one method rather than to every route.
+
+Both share one data layer. Spend, provider cost and profit are aggregated by the database rather than in PHP. Reading every generation and every ledger entry into memory to add them up would work on a demonstration dataset and fall over on a real one. Profit is a subtraction rather than a stored column, so it cannot disagree with the two figures it comes from.
+
+Grouped on `completed_at`, not `created_at`. The provider bills on the day a generation *completed*, so grouping on creation would put a generation submitted at 23:59 on the wrong side of the comparison and produce a difference that looks like a charging error.
+
+**The reconciliation row is the only part that can disprove anything.** Everything else is a sum of this application's own records, which will agree with itself whether or not it is right. `GET /v1/usage` is the provider's own account of what it billed, so comparing against it is the only check that can find a generation billed but never recorded, or recorded at the wrong rate.
+
+A provider that cannot be reached is reported as **unavailable**, never as agreement. No answer and an answer of zero mean opposite things, and conflating them would turn a broken check into a passing one.
 
 **Tests**
 - `report_totals_equal_the_ledger`
+- `profit_is_the_margin_between_cost_and_charge`
+- `generations_are_grouped_by_the_day_they_completed`
+- `nothing_that_did_not_succeed_is_counted`
 - `reconciliation_row_reports_zero_delta_when_records_agree`
+- `reconciliation_reports_a_difference_when_the_provider_billed_for_work_we_never_recorded`
+- `reconciliation_says_unavailable_rather_than_agreeing_when_the_provider_is_unreachable`
+
+It found something on its first real run: provider usage of $0.362 against nothing recorded locally, because the demo account had been deleted while fixing the balance invariant and its generations went with it. The check behaved exactly as intended — the provider had billed for work this application no longer had any record of.
+
+That also surfaced a schema property worth stating: **a generation carrying ledger entries cannot be deleted.** The foreign key is `nullOnDelete`, but a check constraint requires every non-top-up entry to name a generation, so severing one is refused and the delete fails with it. Two constraints combining to make financial history immovable, which is the right outcome — it is asserted in `SchemaConstraintsTest` so it stays true.
 
 ---
 

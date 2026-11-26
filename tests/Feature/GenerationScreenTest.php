@@ -16,7 +16,7 @@ use function Pest\Laravel\actingAs;
 
 beforeEach(function () {
     $this->app->instance(ImageProvider::class, new FakeImageProvider);
-    $this->user = User::factory()->create();
+    $this->user = fundedUser();
     Queue::fake();
 });
 

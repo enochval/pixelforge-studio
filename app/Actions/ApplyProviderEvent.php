@@ -5,15 +5,12 @@ declare(strict_types=1);
 namespace App\Actions;
 
 use App\Domain\GenerationStatus;
-use App\Domain\LedgerEntryKind;
 use App\Domain\Money;
 use App\Domain\Pricing;
 use App\Domain\TokenUsage;
 use App\Integrations\Pixelforge\Data\ProviderGeneration;
 use App\Models\Generation;
-use App\Models\LedgerEntry;
-use App\Models\User;
-use Illuminate\Database\UniqueConstraintViolationException;
+use App\Support\Ledger;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -59,7 +56,7 @@ use Illuminate\Support\Facades\DB;
  */
 final readonly class ApplyProviderEvent
 {
-    public function __construct(private Pricing $pricing) {}
+    public function __construct(private Pricing $pricing, private Ledger $ledger) {}
 
     /**
      * @return bool Whether the generation was moved forward. False means the
@@ -78,11 +75,17 @@ final readonly class ApplyProviderEvent
 
             $generation->fill($attributes)->save();
 
+            // The hold is returned whatever the outcome, and before any
+            // charge. So a success nets to the real cost and a failure nets to
+            // nothing — which is what makes a failed generation free rather
+            // than refunded.
+            $this->ledger->release($generation);
+
             if ($event->succeeded()) {
                 /** @var Money $charge */
                 $charge = $attributes['charged_nanos'];
 
-                $this->charge($generation, $charge);
+                $this->ledger->charge($generation, $charge);
             }
 
             return true;
@@ -167,54 +170,5 @@ final readonly class ApplyProviderEvent
             'failure_message' => $event->failureMessage ?? 'The generation failed.',
             'completed_at' => $event->completedAt ?? now(),
         ];
-    }
-
-    /**
-     * Writes the charge and moves the user's cached balance with it.
-     *
-     * The ledger is authoritative and the cached balance is derived, so both
-     * are written together inside the surrounding transaction. A cache updated
-     * separately would drift, and a balance that drifts is indistinguishable
-     * from a charging bug when someone comes to ask about it.
-     *
-     * A refused insert means a charge for this generation already exists. That
-     * is the index doing its job, and it is not an error: the correct outcome
-     * has already been reached, so the balance is left alone rather than being
-     * moved a second time for the same work.
-     */
-    private function charge(Generation $generation, Money $amount): void
-    {
-        if ($amount->isZero()) {
-            // A succeeded generation reporting no usage. Nothing is owed, and
-            // a zero-amount ledger entry would be a row that says nothing
-            // while occupying the one charge slot this generation has.
-            return;
-        }
-
-        try {
-            // A savepoint, not a second transaction. Postgres aborts an entire
-            // transaction when any statement in it fails, so if the unique
-            // index below refuses this insert, catching the exception would not
-            // be enough on its own: the enclosing transaction would already be
-            // dead and the status change above would be lost at commit. Rolling
-            // back to a savepoint discards only the refused insert.
-            DB::transaction(fn () => LedgerEntry::create([
-                'user_id' => $generation->user_id,
-                'generation_id' => $generation->id,
-                'kind' => LedgerEntryKind::Charge,
-
-                // Negative: a charge moves money away from the user. The sign
-                // lives on the amount so that a balance is a plain SUM.
-                'amount_nanos' => Money::zero()->minus($amount),
-
-                'created_at' => now(),
-            ]));
-        } catch (UniqueConstraintViolationException) {
-            return;
-        }
-
-        User::query()
-            ->whereKey($generation->user_id)
-            ->decrement('balance_nanos', $amount->nanos);
     }
 }

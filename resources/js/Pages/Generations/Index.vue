@@ -1,7 +1,8 @@
 <script setup>
 import { computed, toRef } from 'vue';
-import { Head } from '@inertiajs/vue3';
+import { Head, Link, usePage } from '@inertiajs/vue3';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout.vue';
+import BuyCreditsButton from '@/Components/BuyCreditsButton.vue';
 import GenerationForm from '@/Components/GenerationForm.vue';
 import GenerationRow from '@/Components/GenerationRow.vue';
 import { useGenerationPolling } from '@/composables/useGenerationPolling';
@@ -11,6 +12,8 @@ const props = defineProps({
     sizes: { type: Array, required: true },
     qualities: { type: Array, required: true },
     balance: { type: Number, required: true },
+    creditPacks: { type: Array, required: true },
+    isOperator: { type: Boolean, default: false },
     generations: { type: Array, required: true },
 });
 
@@ -22,6 +25,8 @@ const { formatNanos } = useMoney();
 useGenerationPolling(toRef(props, 'generations'));
 
 const inFlight = computed(() => props.generations.filter((generation) => !generation.is_terminal).length);
+
+const flash = computed(() => usePage().props.flash?.status ?? null);
 </script>
 
 <template>
@@ -33,15 +38,33 @@ const inFlight = computed(() => props.generations.filter((generation) => !genera
                 <h2 class="text-xl font-semibold leading-tight text-gray-800">
                     Generations
                 </h2>
-                <p class="text-sm text-gray-600">
-                    Balance
-                    <span class="font-medium tabular-nums text-gray-900">{{ formatNanos(balance) }}</span>
-                </p>
+                <div class="flex items-center gap-3">
+                    <p class="text-sm text-gray-600">
+                        Balance
+                        <span class="font-medium tabular-nums text-gray-900">{{ formatNanos(balance) }}</span>
+                    </p>
+                    <BuyCreditsButton :packs="creditPacks" />
+                    <Link
+                        v-if="isOperator"
+                        :href="route('operator.index')"
+                        class="text-xs font-medium text-indigo-600 hover:text-indigo-500"
+                    >
+                        Operator report
+                    </Link>
+                </div>
             </div>
         </template>
 
         <div class="py-8">
             <div class="mx-auto max-w-3xl space-y-6 px-4 sm:px-6 lg:px-8">
+                <p
+                    v-if="flash"
+                    class="rounded-md bg-emerald-50 px-4 py-2 text-sm text-emerald-800 ring-1 ring-emerald-200"
+                    role="status"
+                >
+                    {{ flash }}
+                </p>
+
                 <section class="overflow-hidden bg-white shadow-sm sm:rounded-lg">
                     <div class="p-4 sm:p-6">
                         <GenerationForm

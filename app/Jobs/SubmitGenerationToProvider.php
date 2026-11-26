@@ -11,6 +11,7 @@ use App\Integrations\Pixelforge\Data\GenerationSubmission;
 use App\Integrations\Pixelforge\Exceptions\ConcurrencyLimited;
 use App\Integrations\Pixelforge\Exceptions\ProviderException;
 use App\Models\Generation;
+use App\Support\Ledger;
 use DateTimeInterface;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
@@ -170,5 +171,10 @@ final class SubmitGenerationToProvider implements ShouldQueue
             'failure_message' => $cause?->getMessage() ?? 'The generation could not be submitted.',
             'completed_at' => now(),
         ]);
+
+        // The quote was reserved at submission and nothing was produced, so the
+        // reservation is returned in full. Nothing is charged: this generation
+        // never reached the provider, so the provider never billed for it.
+        app(Ledger::class)->release($generation);
     }
 }

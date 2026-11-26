@@ -6,6 +6,8 @@ namespace App\Models;
 
 use App\Casts\MoneyCast;
 use App\Domain\LedgerEntryKind;
+use App\Domain\Money;
+use Carbon\CarbonImmutable;
 use Database\Factories\LedgerEntryFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -17,6 +19,13 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * There is no UPDATED_AT because nothing updates: a correction is a new
  * compensating entry, which is what allows a balance to be reconstructed at
  * any point in time.
+ *
+ * @property int $id
+ * @property int $user_id
+ * @property string|null $generation_id
+ * @property LedgerEntryKind $kind
+ * @property Money $amount_nanos
+ * @property CarbonImmutable $created_at
  */
 final class LedgerEntry extends Model
 {

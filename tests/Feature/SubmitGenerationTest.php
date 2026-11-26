@@ -38,7 +38,7 @@ function aRequest(string $prompt = 'a lighthouse at dusk'): GenerationRequest
 
 describe('accepting a generation', function () {
     it('records the generation before the provider is contacted', function () {
-        $user = User::factory()->create();
+        $user = fundedUser();
 
         $generation = app(SubmitGeneration::class)->execute($user, aRequest());
 
@@ -54,7 +54,7 @@ describe('accepting a generation', function () {
     });
 
     it('records the price the user was shown', function () {
-        $generation = app(SubmitGeneration::class)->execute(User::factory()->create(), aRequest());
+        $generation = app(SubmitGeneration::class)->execute(fundedUser(), aRequest());
 
         expect($generation->quoted_nanos->isZero())->toBeFalse()
             ->and($generation->quoted_usage)->toHaveKeys(['input_text_tokens', 'input_image_tokens', 'output_tokens', 'reasoning_tokens'])
@@ -63,7 +63,7 @@ describe('accepting a generation', function () {
 
     it('gives every generation its own idempotency key', function () {
         Queue::fake();
-        $user = User::factory()->create();
+        $user = fundedUser();
 
         $first = app(SubmitGeneration::class)->execute($user, aRequest());
         $second = app(SubmitGeneration::class)->execute($user, aRequest());
@@ -74,7 +74,7 @@ describe('accepting a generation', function () {
 
 describe('submitting to the provider', function () {
     it('records the provider identifier once the submission is accepted', function () {
-        $generation = app(SubmitGeneration::class)->execute(User::factory()->create(), aRequest());
+        $generation = app(SubmitGeneration::class)->execute(fundedUser(), aRequest());
 
         (new SubmitGenerationToProvider($generation->id))->handle($this->provider);
 
@@ -86,7 +86,7 @@ describe('submitting to the provider', function () {
     });
 
     it('presents the same idempotency key the row was created with', function () {
-        $generation = app(SubmitGeneration::class)->execute(User::factory()->create(), aRequest());
+        $generation = app(SubmitGeneration::class)->execute(fundedUser(), aRequest());
 
         (new SubmitGenerationToProvider($generation->id))->handle($this->provider);
 
@@ -94,7 +94,7 @@ describe('submitting to the provider', function () {
     });
 
     it('sends our own identifier so a webhook can be matched early', function () {
-        $generation = app(SubmitGeneration::class)->execute(User::factory()->create(), aRequest());
+        $generation = app(SubmitGeneration::class)->execute(fundedUser(), aRequest());
 
         (new SubmitGenerationToProvider($generation->id))->handle($this->provider);
 
@@ -129,7 +129,7 @@ describe('submitting to the provider', function () {
 describe('when the provider refuses', function () {
     it('lets the queue retry a failure that might pass later', function () {
         $this->provider->failNextSubmissions(new ProviderOverloaded('busy'));
-        $generation = app(SubmitGeneration::class)->execute(User::factory()->create(), aRequest());
+        $generation = app(SubmitGeneration::class)->execute(fundedUser(), aRequest());
 
         expect(fn () => (new SubmitGenerationToProvider($generation->id))->handle($this->provider))
             ->toThrow(ProviderOverloaded::class);
@@ -143,7 +143,7 @@ describe('when the provider refuses', function () {
         // generation here would charge nothing for work the provider is
         // already doing, and the user would never see the image.
         $this->provider->failNextSubmissions(new ProviderUnavailable('timed out'));
-        $generation = app(SubmitGeneration::class)->execute(User::factory()->create(), aRequest());
+        $generation = app(SubmitGeneration::class)->execute(fundedUser(), aRequest());
 
         expect(fn () => (new SubmitGenerationToProvider($generation->id))->handle($this->provider))
             ->toThrow(ProviderUnavailable::class);
@@ -154,7 +154,7 @@ describe('when the provider refuses', function () {
 
     it('fails immediately when the provider will never accept the request', function () {
         $this->provider->failNextSubmissions(new InvalidRequest('prompt rejected'));
-        $generation = app(SubmitGeneration::class)->execute(User::factory()->create(), aRequest());
+        $generation = app(SubmitGeneration::class)->execute(fundedUser(), aRequest());
 
         (new SubmitGenerationToProvider($generation->id))->handle($this->provider);
 
@@ -168,7 +168,7 @@ describe('when the provider refuses', function () {
 
     it('fails immediately on a credentials problem rather than retrying it', function () {
         $this->provider->failNextSubmissions(new AuthenticationFailed('invalid key'));
-        $generation = app(SubmitGeneration::class)->execute(User::factory()->create(), aRequest());
+        $generation = app(SubmitGeneration::class)->execute(fundedUser(), aRequest());
 
         (new SubmitGenerationToProvider($generation->id))->handle($this->provider);
 
@@ -177,7 +177,7 @@ describe('when the provider refuses', function () {
 
     it('releases the job rather than failing when no slot is free', function () {
         $this->provider->failNextSubmissions(new ConcurrencyLimited('no slot'));
-        $generation = app(SubmitGeneration::class)->execute(User::factory()->create(), aRequest());
+        $generation = app(SubmitGeneration::class)->execute(fundedUser(), aRequest());
 
         $job = new SubmitGenerationToProvider($generation->id);
         $job->job = Mockery::mock(Job::class);
@@ -196,7 +196,7 @@ describe('when the provider refuses', function () {
 
 describe('when every attempt is exhausted', function () {
     it('closes the generation as failed and charges nothing', function () {
-        $generation = app(SubmitGeneration::class)->execute(User::factory()->create(), aRequest());
+        $generation = app(SubmitGeneration::class)->execute(fundedUser(), aRequest());
 
         (new SubmitGenerationToProvider($generation->id))->failed(new ProviderOverloaded('still busy'));
 
@@ -225,7 +225,7 @@ describe('the endpoint', function () {
     });
 
     it('accepts a valid request and returns without waiting for the provider', function () {
-        $this->actingAs(User::factory()->create())
+        $this->actingAs(fundedUser())
             ->from('/dashboard')
             ->post('/generations', [
                 'prompt' => 'a lighthouse at dusk',
@@ -239,7 +239,7 @@ describe('the endpoint', function () {
     });
 
     it('rejects a request it could not price', function (array $payload, string $invalidField) {
-        $this->actingAs(User::factory()->create())
+        $this->actingAs(fundedUser())
             ->post('/generations', $payload)
             ->assertSessionHasErrors($invalidField);
 

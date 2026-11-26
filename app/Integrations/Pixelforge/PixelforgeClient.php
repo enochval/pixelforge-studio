@@ -19,6 +19,7 @@ use App\Integrations\Pixelforge\Exceptions\ProviderException;
 use App\Integrations\Pixelforge\Exceptions\ProviderOverloaded;
 use App\Integrations\Pixelforge\Exceptions\ProviderUnavailable;
 use App\Integrations\Pixelforge\Exceptions\RateLimited;
+use Carbon\CarbonImmutable;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Factory as HttpFactory;
 use Illuminate\Http\Client\PendingRequest;
@@ -119,6 +120,27 @@ final class PixelforgeClient implements ImageProvider
         $response = $this->send(
             fn (PendingRequest $request): Response => $request->get('/pricing'),
             authenticated: false,
+        );
+
+        /** @var array<string, mixed> $body */
+        $body = $response->json();
+
+        return $body;
+    }
+
+    /**
+     * @return array<string, mixed>
+     *
+     * @throws ProviderException
+     */
+    public function usage(CarbonImmutable $from, CarbonImmutable $to): array
+    {
+        $response = $this->send(
+            fn (PendingRequest $request): Response => $request->get('/usage', [
+                // Dates, not timestamps: the provider bills by UTC day.
+                'start_date' => $from->toDateString(),
+                'end_date' => $to->toDateString(),
+            ]),
         );
 
         /** @var array<string, mixed> $body */

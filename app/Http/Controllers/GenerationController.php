@@ -6,6 +6,7 @@ namespace App\Http\Controllers;
 
 use App\Actions\SubmitGeneration;
 use App\Domain\Pricing;
+use App\Exceptions\InsufficientCredit;
 use App\Http\Requests\QuoteGenerationRequest;
 use App\Http\Requests\StoreGenerationRequest;
 use App\Integrations\Pixelforge\RateCardRepository;
@@ -13,6 +14,7 @@ use App\Models\Generation;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Validation\ValidationException;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -34,6 +36,15 @@ final class GenerationController extends Controller
             'qualities' => $card->qualities(),
 
             'balance' => $request->user()->balance_nanos->nanos,
+
+            // Fixed server-side, so the browser chooses between amounts rather
+            // than naming one.
+            'creditPacks' => config('pixelforge.credit_packs'),
+
+            // Decides whether the link to the operator report is shown. The
+            // route is gated independently — this only avoids offering a link
+            // that would be refused.
+            'isOperator' => $request->user()->can('view-operator-report'),
 
             'generations' => $this->history($request),
         ]);
@@ -66,7 +77,15 @@ final class GenerationController extends Controller
      */
     public function store(StoreGenerationRequest $request, SubmitGeneration $submit): RedirectResponse
     {
-        $submit->execute($request->user(), $request->toGenerationRequest());
+        try {
+            $submit->execute($request->user(), $request->toGenerationRequest());
+        } catch (InsufficientCredit $e) {
+            // Reported against the prompt field so it appears where the user is
+            // looking, rather than as a flash message they have to hunt for.
+            // Not a 500: refusing a generation the balance cannot cover is the
+            // system working, not failing.
+            throw ValidationException::withMessages(['prompt' => $e->getMessage()]);
+        }
 
         return back();
     }

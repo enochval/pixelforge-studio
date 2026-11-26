@@ -236,4 +236,11 @@ Anything that must outlive the window has to be downloaded and stored.
 
 **Usage is billed on the UTC day a generation completed, not the day it was created.**
 That is the grouping the reconciliation report has to match, and getting it wrong would
-produce a discrepancy that looks like a charging bug.
+produce a discrepancy that looks like a charging bug. `BuildOperatorReport` therefore
+groups on `completed_at`.
+
+**`GET /v1/usage` accepts at most 92 days**, as whole UTC dates, defaulting to the last 30
+and ending today. `cost_usd` comes back as an exact nine-decimal string, and days with no
+usage are included as zeros. The operator report caps its own range at 92 days for that
+reason: a longer one could not be reconciled even if it were asked for, so offering it
+would be offering a figure with no check behind it.

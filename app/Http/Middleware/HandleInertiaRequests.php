@@ -31,6 +31,12 @@ class HandleInertiaRequests extends Middleware
     {
         return [
             ...parent::share($request),
+            // One-off messages after a redirect, such as a credit purchase
+            // confirming. Shared here rather than per-controller so any page
+            // can show one without its controller having to know.
+            'flash' => [
+                'status' => fn () => $request->session()->get('status'),
+            ],
             'auth' => [
                 'user' => $request->user(),
             ],

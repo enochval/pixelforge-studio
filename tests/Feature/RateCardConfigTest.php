@@ -12,6 +12,7 @@ use App\Integrations\Pixelforge\Data\SubmissionResult;
 use App\Integrations\Pixelforge\Exceptions\ProviderUnavailable;
 use App\Integrations\Pixelforge\FakeImageProvider;
 use App\Integrations\Pixelforge\RateCardRepository;
+use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\Cache;
 
 /**
@@ -106,6 +107,11 @@ it('still quotes when the pricing endpoint cannot be reached', function () {
         }
 
         public function pricing(): array
+        {
+            throw new ProviderUnavailable('timed out');
+        }
+
+        public function usage(CarbonImmutable $from, CarbonImmutable $to): array
         {
             throw new ProviderUnavailable('timed out');
         }

@@ -131,6 +131,18 @@ final readonly class Money implements JsonSerializable
         return new self($this->nanos - $other->nanos);
     }
 
+    /**
+     * The same amount, the other way round.
+     *
+     * A named operation rather than `zero()->minus($x)` at each call site,
+     * because the ledger decides the sign of an entry from its kind and that
+     * decision reads better as a word than as arithmetic.
+     */
+    public function negated(): self
+    {
+        return new self(-$this->nanos);
+    }
+
     public function multipliedBy(int $factor): self
     {
         return new self($this->nanos * $factor);

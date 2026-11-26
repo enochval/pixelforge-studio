@@ -6,6 +6,7 @@ namespace App\Console\Commands;
 
 use App\Domain\Money;
 use App\Models\User;
+use App\Support\Ledger;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Hash;
 
@@ -53,12 +54,15 @@ final class CreateDemoUserCommand extends Command
         ]);
 
         $user->email_verified_at = now();
-
-        // Assigned rather than filled: a balance must never be settable from
-        // mass assignment, so it is absent from the model's fillable list.
-        $user->balance_nanos = Money::fromUsd($credit);
-
         $user->save();
+
+        // Credit enters through the ledger, never by setting the balance.
+        // A balance written directly would be money with no entry behind it,
+        // which breaks the invariant that the cached balance equals the sum of
+        // the ledger — the one thing `pixelforge:verify-balances` checks.
+        app(Ledger::class)->topUp($user, Money::fromUsd($credit));
+
+        $user->refresh();
 
         $this->info("Demo account ready: {$email} / {$password}");
         $this->line('Balance: '.$user->balance_nanos->toUsdString(2));

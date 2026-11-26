@@ -5,6 +5,9 @@ declare(strict_types=1);
 namespace App\Integrations\Pixelforge;
 
 use App\Domain\GenerationStatus;
+use App\Domain\Money;
+use App\Domain\Pricing;
+use App\Domain\RateCard;
 use App\Domain\TokenUsage;
 use App\Integrations\Pixelforge\Contracts\ImageProvider;
 use App\Integrations\Pixelforge\Data\GenerationSubmission;
@@ -14,6 +17,7 @@ use App\Integrations\Pixelforge\Exceptions\ContentPolicyViolation;
 use App\Integrations\Pixelforge\Exceptions\GenerationNotFound;
 use App\Integrations\Pixelforge\Exceptions\ProviderException;
 use App\Integrations\Pixelforge\Exceptions\ProviderOverloaded;
+use Carbon\CarbonImmutable;
 use DateTimeImmutable;
 use Illuminate\Support\Str;
 
@@ -167,6 +171,61 @@ final class FakeImageProvider implements ImageProvider
         $published = config('pixelforge.pricing.fallback');
 
         return $published;
+    }
+
+    /**
+     * Usage derived from the generations this instance actually completed, so
+     * a reconciliation test compares against something the fake really did
+     * rather than a figure handed to it.
+     *
+     * @return array<string, mixed>
+     */
+    public function usage(CarbonImmutable $from, CarbonImmutable $to): array
+    {
+        $days = [];
+
+        foreach ($this->generations as $generation) {
+            if (! $generation->succeeded() || $generation->usage === null) {
+                continue;
+            }
+
+            $completed = CarbonImmutable::instance($generation->completedAt ?? new DateTimeImmutable);
+
+            if ($completed->lt($from->startOfDay()) || $completed->gt($to->endOfDay())) {
+                continue;
+            }
+
+            $date = $completed->toDateString();
+            $cost = $this->pricingFor($generation->rates)->providerCost($generation->usage);
+
+            $days[$date] ??= ['generations' => 0, 'cost' => Money::zero()];
+            $days[$date]['generations']++;
+            $days[$date]['cost'] = $days[$date]['cost']->plus($cost);
+        }
+
+        ksort($days);
+
+        return [
+            'object' => 'usage',
+            'start_date' => $from->toDateString(),
+            'end_date' => $to->toDateString(),
+            'data' => array_map(static fn (array $day, string $date): array => [
+                'date' => $date,
+                'generations' => $day['generations'],
+                'cost_usd' => $day['cost']->toUsdString(),
+            ], array_values($days), array_keys($days)),
+        ];
+    }
+
+    /**
+     * @param  array<string, string>  $rates
+     */
+    private function pricingFor(array $rates): Pricing
+    {
+        /** @var array<string, mixed> $published */
+        $published = config('pixelforge.pricing.fallback');
+
+        return (new Pricing(RateCard::fromPricingPayload($published, 0)))->withRates($rates);
     }
 
     // -----------------------------------------------------------------

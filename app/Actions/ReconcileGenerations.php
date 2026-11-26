@@ -13,6 +13,7 @@ use App\Integrations\Pixelforge\GenerationTranslator;
 use App\Jobs\SubmitGenerationToProvider;
 use App\Models\Generation;
 use App\Models\WebhookEvent;
+use App\Support\Ledger;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
@@ -59,6 +60,7 @@ final readonly class ReconcileGenerations
         private ImageProvider $provider,
         private GenerationTranslator $translator,
         private ApplyProviderEvent $apply,
+        private Ledger $ledger,
     ) {}
 
     /**
@@ -309,7 +311,7 @@ final readonly class ReconcileGenerations
      */
     private function close(Generation $generation, string $code, string $message): void
     {
-        $generation->newQuery()
+        $claimed = $generation->newQuery()
             ->whereKey($generation->getKey())
             ->where('status_rank', '<', GenerationStatus::Failed->rank())
             ->update([
@@ -320,6 +322,14 @@ final readonly class ReconcileGenerations
                 'completed_at' => now(),
                 'updated_at' => now(),
             ]);
+
+        // Only release when this call was the one that closed it. If a webhook
+        // got there first, settling it is that path's business, and releasing
+        // again here would be refused by the ledger anyway — but checking the
+        // claim says what is meant rather than relying on that.
+        if ($claimed === 1) {
+            $this->ledger->release($generation);
+        }
     }
 
     /**

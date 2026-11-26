@@ -2,7 +2,9 @@
 
 declare(strict_types=1);
 
+use App\Http\Controllers\CreditController;
 use App\Http\Controllers\GenerationController;
+use App\Http\Controllers\OperatorReportController;
 use App\Http\Controllers\ProfileController;
 use Illuminate\Support\Facades\Route;
 use Inertia\Inertia;
@@ -24,6 +26,15 @@ Route::middleware(['auth', 'verified'])->group(function () {
     // Prices a request without submitting it, so the figure on screen comes
     // from the same code that performs the charge.
     Route::post('/generations/quote', [GenerationController::class, 'quote'])->name('generations.quote');
+
+    // A fake purchase: adds credit, takes no payment.
+    Route::post('/credits', [CreditController::class, 'store'])->name('credits.store');
+
+    // Shows every user's spend and the margin taken on it, so it is gated
+    // rather than left to anyone who guesses the URL.
+    Route::get('/operator', [OperatorReportController::class, 'index'])
+        ->middleware('can:view-operator-report')
+        ->name('operator.index');
 });
 
 Route::middleware('auth')->group(function () {

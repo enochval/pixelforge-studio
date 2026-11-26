@@ -8,6 +8,7 @@ use App\Integrations\Pixelforge\Data\GenerationSubmission;
 use App\Integrations\Pixelforge\Data\ProviderGeneration;
 use App\Integrations\Pixelforge\Data\SubmissionResult;
 use App\Integrations\Pixelforge\Exceptions\ProviderException;
+use Carbon\CarbonImmutable;
 
 /**
  * The boundary between this application and the image generation provider.
@@ -54,4 +55,21 @@ interface ImageProvider
      * @throws ProviderException
      */
     public function pricing(): array;
+
+    /**
+     * What the provider billed, per UTC day, for the key making the call.
+     *
+     * The source of truth for provider costs, and therefore what this
+     * application's own records are reconciled against. Returned in the
+     * provider's own shape for the same reason as pricing(): this interface
+     * describes what the provider says, not what it means.
+     *
+     * Note that a generation is billed on the day it *completed*, not the day
+     * it was created, which is the grouping any comparison has to match.
+     *
+     * @return array<string, mixed>
+     *
+     * @throws ProviderException
+     */
+    public function usage(CarbonImmutable $from, CarbonImmutable $to): array;
 }

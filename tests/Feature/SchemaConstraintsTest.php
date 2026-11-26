@@ -9,7 +9,6 @@ use App\Models\Generation;
 use App\Models\LedgerEntry;
 use App\Models\User;
 use App\Models\WebhookEvent;
-use Closure;
 use Illuminate\Database\QueryException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 
@@ -43,6 +42,36 @@ function databaseRefuses(Closure $write): bool
         return true;
     }
 }
+describe('financial history cannot be severed', function () {
+    it('refuses to delete a generation that carries ledger entries', function () {
+        // What the operator report depends on: a provider cost cannot be made
+        // to disappear from our records by deleting the row it belongs to.
+        //
+        // The foreign key is nullOnDelete, but a check constraint requires
+        // every entry other than a top-up to name a generation — so severing
+        // one is refused, and the delete fails with it. Two constraints
+        // combining to make financial history immovable.
+        $generation = Generation::factory()->succeeded()->create();
+
+        LedgerEntry::factory()->create([
+            'user_id' => $generation->user_id,
+            'generation_id' => $generation->id,
+        ]);
+
+        expect(databaseRefuses(fn () => $generation->delete()))->toBeTrue()
+            ->and(Generation::whereKey($generation->id)->exists())->toBeTrue();
+    });
+
+    it('allows deleting a generation that has no entries', function () {
+        // Which is what makes a refused submission cleanable: the hold rolled
+        // back, so there is nothing to keep.
+        $generation = Generation::factory()->create();
+
+        expect(databaseRefuses(fn () => $generation->delete()))->toBeFalse()
+            ->and(Generation::whereKey($generation->id)->exists())->toBeFalse();
+    });
+});
+
 describe('duplicate delivery', function () {
     it('refuses a second webhook event with the same provider event id', function () {
         WebhookEvent::factory()->create(['provider_event_id' => 'evt_duplicate']);
