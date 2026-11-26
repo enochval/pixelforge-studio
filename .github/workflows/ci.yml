@@ -5,11 +5,15 @@ on:
     branches: [main]
   pull_request:
 
-# CI runs through the same Docker Compose stack used for development, rather
-# than installing PHP on the runner. Two reasons: the suite is then executed
-# against the exact PHP version and extension set the application ships with,
-# and the Dockerfile is exercised on every push instead of rotting until it is
-# needed.
+# CI runs through the same Docker Compose stack used for development rather than
+# installing PHP on the runner, so the suite executes against the exact PHP
+# version and extension set the application ships with — pdo_pgsql and bcmath in
+# particular, since the money arithmetic depends on the latter.
+#
+# It deliberately does not build the Dockerfile's production target. Deployment
+# is Laravel Cloud, which builds from source with its own runtime, so that image
+# is not what runs anywhere and verifying it would be verifying something
+# nothing uses.
 
 jobs:
   check:
@@ -31,6 +35,20 @@ jobs:
       - name: Generate application key
         run: docker compose run --rm --no-deps app php artisan key:generate
 
+      # Required before the tests, not optional.
+      #
+      # Every page is rendered through Inertia, and the Blade layout calls
+      # @vite — which needs either a built manifest or a running dev server.
+      # Both public/build and public/hot are gitignored, so a fresh checkout has
+      # neither and every test that renders a page fails with
+      # ViteManifestNotFoundException. That is what broke this workflow: it
+      # passed locally only because a developer machine has one or the other.
+      #
+      # Building here also means the asset build is verified on every push,
+      # which is most of what the old production-image job was really checking.
+      - name: Build front-end assets
+        run: docker compose run --rm --no-deps vite sh -c "npm ci && npm run build"
+
       - name: Start backing services
         run: |
           docker compose up -d postgres redis
@@ -42,19 +60,12 @@ jobs:
       - name: Static analysis
         run: docker compose run --rm app composer analyse
 
+      # Runs all three suites, including the concurrency suite, which commits
+      # rather than running inside a transaction. It needs a real database, not
+      # SQLite: the guarantees under test are Postgres ones.
       - name: Tests
         run: docker compose run --rm app ./vendor/bin/pest --ci
 
       - name: Service logs on failure
         if: failure()
         run: docker compose logs
-
-  production-image:
-    name: Production image builds
-    runs-on: ubuntu-latest
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Build production target
-        run: docker build --target production -t pixelforge:production .

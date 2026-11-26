@@ -17,25 +17,25 @@ exactly what it cost, or not at all.**
 
 ## Live at https://pixelforge-studio-production-unqkoa.laravel.cloud
 
-Two accounts, because there are **two applications** and neither can reach the other.
-Both passwords are `password`.
+There are **two applications**, and neither can reach the other.
 
-| Sign in as | To see |
+| Account | Sees |
 |---|---|
-| `demo@pixelforge.test` | **Studio** — generate images, buy credit with a simulated card |
-| `operator@pixelforge.test` | **Console** — spend, provider cost, profit, and the reconciliation |
+| A customer | **Studio** — generate images, buy credit with a simulated card |
+| An operator | **Console** — spend, provider cost, profit, and the reconciliation |
 
+**Credentials for both are supplied with the submission** rather than committed here.
 Signing in lands on whichever application the account belongs to, so there is nothing to
-navigate to. **`/register` also works** if you would rather make your own customer account —
-new registrations are customers, and an operator cannot be created through the interface.
+navigate to.
+
+**`/register` also works** if you would rather make your own account. New registrations are
+customers; an operator cannot be created through the interface, because `is_operator` is
+absent from the model's fillable attributes and defaults to false in both the model and the
+schema.
 
 An operator cannot generate, and a customer gets a 403 on the console. That is deliberate:
 an account that reads every user's margin should not also be spending on the same balance,
 or a figure in the console would be partly the operator's own activity.
-
-The credentials are published on purpose, for a demonstration holding no real data and no
-real money. Nothing here would survive contact with a real user base, and the role check
-is a Gate rather than a password, so tightening access later is a change to one policy.
 
 ### Worth trying, in order
 
@@ -62,7 +62,9 @@ make up          # build, install, start every service, migrate
 make seed-demo   # two demo accounts, both with password "password"
 ```
 
-Then open **http://localhost:8000**, with the same two accounts as above.
+Then open **http://localhost:8000**. `make seed-demo` prints the local credentials it
+creates; it refuses to run outside local development, because they are deliberately
+guessable.
 
 | | |
 |---|---|
