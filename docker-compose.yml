@@ -40,7 +40,11 @@ services:
   worker:
     <<: *app
     container_name: pixelforge-worker
-    command: php artisan queue:work --tries=1 --max-time=3600
+    # No --tries here on purpose. Each job declares its own attempt count and
+    # backoff, and a flag would read as overriding them when in fact the job
+    # property wins. --max-time recycles the process hourly so a long-lived
+    # worker cannot accumulate leaked memory.
+    command: php artisan queue:work --max-time=3600
     ports: []
 
   scheduler:
@@ -53,7 +57,9 @@ services:
     image: node:20-alpine
     container_name: pixelforge-vite
     working_dir: /app
-    command: sh -c "npm install && npm run dev -- --host 0.0.0.0"
+    # Host and HMR settings live in vite.config.js rather than as flags here,
+    # so there is one place that decides how the dev server is reachable.
+    command: sh -c "npm install && npm run dev"
     volumes:
       - .:/app
       - node_modules:/app/node_modules

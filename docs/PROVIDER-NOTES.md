@@ -8,8 +8,7 @@ traces back to a line in those docs, and the trace is worth making explicit. Whe
 provider's contract decided something, the decision belongs to the contract and not to
 taste.
 
-Where a guarantee is answered by code that has not been written yet, it says so.
-[PLAN.md](PLAN.md) tracks which phase each part belongs to.
+[PLAN.md](PLAN.md) tracks which phase each part was built in, and what remains.
 
 ---
 
@@ -168,28 +167,30 @@ generations per UTC day, held in `config/pixelforge.php`.
 
 ## Webhook delivery
 
-The endpoint arrives with the webhook phase. What the contract requires of it:
-
 Any `2xx` within **10 seconds** counts as delivered; anything else is retried after 10s,
-30s, 2m, 10m and 15m, up to six attempts. So the endpoint must verify the signature,
-insert the event, dispatch a job and return `204` — nothing slow inside the request. A
-handler that charged inline would be fast enough most of the time and time out under
-load, at which point the provider would redeliver the event it had already been charged
+30s, 2m, 10m and 15m, up to six attempts. So the endpoint verifies the signature,
+inserts the event, dispatches a job and returns `204` — nothing slow inside the request.
+A handler that charged inline would be fast enough most of the time and time out under
+load, at which point the provider would redeliver an event it had already been charged
 for.
 
 Signatures are `Pixelforge-Signature: t=<unix>,v1=<hex>`, an HMAC-SHA256 of
 `<timestamp>.<raw body>` keyed with the signing secret of the API key that created the
-generation. Verification goes against the raw body **before** any JSON decoding, compares
-in constant time, and rejects anything outside a 300-second window — the tolerance is
-already configured as `pixelforge.webhooks.tolerance_seconds`. The route has to sit
-outside the web middleware group, since the provider has no CSRF token.
+generation. `VerifyPixelforgeSignature` hashes the raw body **before** any JSON decoding,
+compares in constant time, and rejects anything outside the configured 300-second window.
+It is route middleware rather than a check inside the controller, so there is no path to
+the controller that skips it, and the route sits outside the web middleware group because
+the provider has no CSRF token to present.
 
 **Delivery is explicitly not guaranteed.** `GET /v1/generations/{id}` is the documented
 fallback, which is what the reconciler is for — not a belt-and-braces addition but the
-other half of a contract that says webhooks may simply never arrive. The schema supports
-it already: a partial index on `generations` covers exactly the rows that have not reached
-a terminal status, so the reconciler's scan stays the size of the in-flight set however
-large the table grows.
+other half of a contract that says webhooks may simply never arrive. `ReconcileGenerations`
+runs every minute and is described in [PLAN.md](PLAN.md); a partial index on `generations`
+covers exactly the rows that have not reached a terminal status, so its scan stays the
+size of the in-flight set however large the table grows.
+
+A provider that cannot be reached is not treated as an outcome. Only a definite `404`
+closes a generation — a failed request says nothing about whether the work succeeded.
 
 Each API key has its own webhook URL and signing secret, so one key is used per
 environment and no environment sees another's events. Webhook URLs must be publicly

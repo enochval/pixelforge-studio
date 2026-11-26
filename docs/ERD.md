@@ -119,7 +119,7 @@ A transactional inbox. Every delivery that passes signature verification is reco
 
 `payload` keeps the raw delivery indefinitely. When a figure is questioned later, the provider's own words about that generation are still on file.
 
-`outcome` records what processing decided — `applied`, `ignored_stale` for an event superseded by a later one, or `orphaned` for an event whose generation could not yet be identified.
+`outcome` records what processing decided: `applied`, `ignored_stale` for an event superseded by one that had already arrived, `orphaned` for an event whose generation could not yet be identified, or `acknowledged` for a `ping` — the provider's dashboard test event, which is valid and about no generation. None of the four is a failure; an event that cannot be verified never reaches this table at all.
 
 Deliveries that fail signature verification are rejected and **not** stored. Storing unauthenticated input invites a writable table reachable by anyone who knows the endpoint.
 

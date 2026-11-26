@@ -194,14 +194,39 @@ And `users.balance_nanos` needed a model-level default. The column defaults to z
 
 ## Phase 7 — Reconciliation
 
-A scheduled command covering the cases webhooks cannot: deliveries that never arrive, and events received before their generation could be identified. It polls non-terminal generations older than 60 seconds, retries orphaned events, and sweeps anything still unresolved after 30 minutes to a terminal failed state at no cost.
+**Status: complete.** 20 tests, plus a run against the live provider confirming that a provider which cannot be reached leaves generations open rather than closing them.
 
-It calls `ApplyProviderEvent` — the same code path as the webhook handler. Two implementations of the same state transition would drift, and the drift would show up as a double charge.
+A command scheduled every minute. The provider states that webhook delivery is not guaranteed and names `GET /v1/generations/{id}` as the fallback, so this is the other half of its contract rather than a precaution added to a working system. Thresholds are configurable: a generation is chased after 120 seconds, which is past the 60 to 90 seconds a `[slow]` generation legitimately takes, and closed after 30 minutes.
+
+It calls `ApplyProviderEvent` — the same code path as the webhook handler. Two implementations of the same state transition would drift, and the drift would show up as a double charge. It also means the reconciler racing a late webhook is harmless: whichever is second fails the compare-and-set and changes nothing.
+
+Four situations, which are genuinely different problems rather than one seen from four angles:
+
+| Situation | What happens | Why not something else |
+|---|---|---|
+| An event stored before its generation could be identified | Matched and applied from the stored payload | No network call, so this runs first. An event already in hand is better evidence than anything a poll returns |
+| Accepted by the provider, no terminal event | Polled by provider id and applied | — |
+| Never accepted — every submission attempt failed or timed out | **Resubmitted**, not polled | There is no provider id to poll by. Safe only because the idempotency key was written to the row before the first attempt, so a repeat returns the original generation rather than creating a second one. Without it this would be the most expensive operation in the system |
+| Unresolved for 30 minutes | Closed as failed, charged nothing | Leaving it open is worse twice over: the user watches a status that will never change, and every later run returns rows that can never resolve, so the work grows without bound |
+
+The four run as ordered statements rather than as an array literal, because the order is part of the behaviour: nothing is abandoned in the same run that could still have been resolved by polling.
+
+**A provider that cannot be reached is not an outcome.** A failed request says nothing about whether a generation succeeded, so those are logged and left for the next run. Only a definite `404` closes a generation, and that is logged as a warning, because it means this application holds an id the provider does not recognise.
+
+**Resubmission needs a cooldown, which is less obvious than it sounds.** Nothing about the row changes when a resubmission is queued — there is no provider id to record and `created_at` does not move — so the query would return the same generation on every run and queue it again, roughly thirty times before it is abandoned. The idempotency key makes each one harmless but not free: every attempt is a request against a 60-per-minute allowance other work needs. A short-lived cache key marks a generation as recently retried. It is a cooldown rather than a lock, so losing it to a cache restart costs one extra attempt that the idempotency key already covers.
 
 **Tests**
 - `reconciler_completes_a_generation_whose_webhook_never_arrived`
+- `a_reconciled_generation_is_priced_exactly_as_a_webhook_would_have_priced_it`
 - `reconciler_does_not_double_charge_a_generation_already_charged_by_a_webhook`
+- `a_generation_still_simply_running_is_left_alone`
+- `an_orphaned_event_is_matched_without_calling_the_provider`
+- `an_unaccepted_generation_is_resubmitted_under_the_same_idempotency_key`
+- `the_same_generation_is_not_resubmitted_on_every_run`
 - `stale_generation_is_failed_and_charged_nothing`
+- `an_abandoned_generation_stops_being_polled`
+
+Each guard was checked by removing it and confirming a test fails: without the poll threshold the reconciler chases work that is still on time, without the abandon bound it resubmits a generation for ever, and without the cooldown it resubmits on every run.
 
 ---
 
