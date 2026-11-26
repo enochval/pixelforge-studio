@@ -11,6 +11,16 @@
         <testsuite name="Feature">
             <directory>tests/Feature</directory>
         </testsuite>
+
+        <!-- A suite of its own because these tests must NOT run inside a
+             transaction. They assert behaviour between concurrent database
+             connections, and an uncommitted row is invisible to every
+             connection but the one that wrote it — so RefreshDatabase, which
+             the Feature suite applies, would make the second connection see an
+             empty database. These tests commit, and clean up after themselves. -->
+        <testsuite name="Concurrency">
+            <directory>tests/Concurrency</directory>
+        </testsuite>
     </testsuites>
     <source>
         <include>
@@ -45,5 +55,12 @@
         <env name="PULSE_ENABLED" value="false" force="true"/>
         <env name="TELESCOPE_ENABLED" value="false" force="true"/>
         <env name="NIGHTWATCH_ENABLED" value="false" force="true"/>
+
+        <!-- A fixed signing secret, so signature verification is exercised
+             against a known key rather than against whatever the environment
+             happens to hold. The real secret is never needed to test the
+             verification, only a consistent one. -->
+        <env name="PIXELFORGE_WEBHOOK_SECRET" value="whsec_test_secret" force="true"/>
+        <env name="PIXELFORGE_API_KEY" value="pf_test_key" force="true"/>
     </php>
 </phpunit>

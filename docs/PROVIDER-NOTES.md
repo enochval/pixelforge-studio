@@ -99,8 +99,8 @@ usual way a system like this ends up charging twice.
 |---|---|---|
 | The same event delivered twice | `webhook_events.provider_event_id` UNIQUE — the transactional inbox | Schema in place |
 | A charge written twice for one generation | Partial unique index on `(generation_id, kind)` in `ledger_entries` | Schema in place |
-| Events applied out of order | Monotonic `status_rank` guard inside the `UPDATE` | Column and rank ordering in place; the guarded `UPDATE` lands with the webhook phase |
-| Two workers processing one generation at once | `SELECT … FOR UPDATE` on the generation row | With the webhook phase |
+| Events applied out of order | Monotonic `status_rank` guard inside the `UPDATE` | Built |
+| Two workers processing one generation at once | A compare-and-set on `status_rank`: the transition is claimed by a conditional `UPDATE` whose affected-row count is the decision | Built |
 
 The two unique constraints are deliberately in the schema rather than in application
 code. A uniqueness check performed by reading and then writing is not a guarantee; two

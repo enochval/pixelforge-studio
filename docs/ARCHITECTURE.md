@@ -80,7 +80,7 @@ The tables, their constraints and the reasoning behind them are set out in [ERD.
 | Gateway with a test double | `ImageProvider`, `PixelforgeClient`, `FakeImageProvider` | The application depends on the interface. Work that sits above the provider can be built and tested before the real client exists. |
 | Transactional inbox | `webhook_events` | Events are persisted and deduplicated on arrival, then processed from storage. The standard response to at-least-once delivery. |
 | Idempotency key | Generation submission | A timed-out request is an unknown outcome, not a failed one. The key makes retrying it safe. |
-| Pessimistic locking | `SELECT … FOR UPDATE` on a generation | Serialises concurrent events for the same generation across a critical section spanning several reads and writes. |
+| Compare-and-set | `UPDATE … WHERE status_rank < :rank` on a generation | Claims a state transition atomically. The affected-row count is the decision, so two workers handling the same event cannot both conclude they should apply it. |
 | Compare-and-set | `UPDATE … WHERE balance_nanos >= :amount` | Collapses the affordability check and the deduction into a single atomic statement, so two concurrent submissions cannot both pass. |
 | Bulkhead | Redis semaphore around provider calls | A concurrency limit constrains simultaneous requests, which a rate limiter does not address. |
 | Retry with full jitter | HTTP client and queued jobs | Fixed backoff retries every affected job at the same moment and reproduces the overload that caused the failure. |
@@ -99,7 +99,7 @@ Three distinct problems are handled by three distinct mechanisms, and conflating
 
 Charging is additionally guarded at the ledger boundary by a unique index on `(generation_id, kind)`. The inbox and the ledger constraint fail independently, so neither is relied on alone — a replayed event, a manual redelivery or a reconciler racing a webhook is refused by the database rather than by application logic.
 
-Locking strategy is chosen per problem rather than uniformly. The webhook path holds a row lock because its critical section spans several statements; the balance path uses a conditional update because the check and the write collapse into one.
+Both contended paths use a conditional update rather than a lock, for the same reason: the check and the write collapse into one statement, so there is no gap for a second worker to fit inside and nothing to hold a lock across. The webhook path claims a state transition on `status_rank`; the balance path claims funds on `balance_nanos`. Where a transition has further columns to write, those happen afterwards in the same transaction, under a claim already won.
 
 ---
 

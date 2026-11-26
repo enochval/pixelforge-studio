@@ -20,17 +20,13 @@ final class WebhookEventFactory extends Factory
      */
     public function definition(): array
     {
-        $providerGenerationId = 'gen_'.Str::random(16);
+        $providerGenerationId = 'gen_'.Str::upper(Str::random(26));
 
         return [
-            'provider_event_id' => 'evt_'.Str::random(16),
+            'provider_event_id' => 'evt_'.Str::upper(Str::random(26)),
             'event_type' => 'generation.succeeded',
             'provider_generation_id' => $providerGenerationId,
-            'payload' => [
-                'id' => 'evt_'.Str::random(16),
-                'type' => 'generation.succeeded',
-                'data' => ['generation_id' => $providerGenerationId],
-            ],
+            'payload' => ['data' => ['object' => ['id' => $providerGenerationId]]],
             'outcome' => null,
             'received_at' => now(),
             'processed_at' => null,

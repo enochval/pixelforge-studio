@@ -4,8 +4,6 @@ declare(strict_types=1);
 
 namespace App\Integrations\Pixelforge;
 
-use App\Domain\GenerationStatus;
-use App\Domain\TokenUsage;
 use App\Integrations\Pixelforge\Contracts\ImageProvider;
 use App\Integrations\Pixelforge\Data\GenerationSubmission;
 use App\Integrations\Pixelforge\Data\ProviderGeneration;
@@ -21,7 +19,6 @@ use App\Integrations\Pixelforge\Exceptions\ProviderException;
 use App\Integrations\Pixelforge\Exceptions\ProviderOverloaded;
 use App\Integrations\Pixelforge\Exceptions\ProviderUnavailable;
 use App\Integrations\Pixelforge\Exceptions\RateLimited;
-use DateTimeImmutable;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Factory as HttpFactory;
 use Illuminate\Http\Client\PendingRequest;
@@ -47,6 +44,7 @@ final class PixelforgeClient implements ImageProvider
         private readonly ConcurrencyLimiter $limiter,
         private readonly string $baseUrl,
         private readonly string $apiKey,
+        private readonly GenerationTranslator $translator = new GenerationTranslator,
         private readonly int $timeoutSeconds = 15,
     ) {}
 
@@ -83,7 +81,7 @@ final class PixelforgeClient implements ImageProvider
 
         return new SubmissionResult(
             providerGenerationId: (string) $body['id'],
-            status: $this->translateStatus((string) ($body['status'] ?? 'queued')),
+            status: $this->translator->status((string) ($body['status'] ?? 'queued')),
             rates: $rates,
 
             // The provider sets this header when it recognised the idempotency
@@ -101,7 +99,7 @@ final class PixelforgeClient implements ImageProvider
         /** @var array<string, mixed> $body */
         $body = $response->json();
 
-        return $this->translateGeneration($body);
+        return $this->translator->fromPayload($body);
     }
 
     /**
@@ -249,64 +247,5 @@ final class PixelforgeClient implements ImageProvider
     {
         return (string) ($response->json('error.message')
             ?? "Provider responded with HTTP {$response->status()}.");
-    }
-
-    /**
-     * @param  array<string, mixed>  $body  A generation object, from a polled
-     *                                      response or from inside an event
-     */
-    public function translateGeneration(array $body): ProviderGeneration
-    {
-        /** @var array<string, mixed>|null $usage */
-        $usage = $body['usage'] ?? null;
-
-        /** @var array<string, string> $rates */
-        $rates = $body['rates'] ?? [];
-
-        /** @var array<string, string> $metadata */
-        $metadata = $body['metadata'] ?? [];
-
-        /** @var array<string, string>|null $error */
-        $error = $body['error'] ?? null;
-
-        return new ProviderGeneration(
-            providerGenerationId: (string) $body['id'],
-            status: $this->translateStatus((string) $body['status']),
-
-            // Null until the generation succeeds. Failed generations are never
-            // billed, so there is nothing to price.
-            usage: $usage === null ? null : TokenUsage::fromProviderPayload($usage),
-
-            imageUrl: isset($body['image_url']) ? (string) $body['image_url'] : null,
-            imageUrlExpiresAt: $this->timestamp($body['image_url_expires_at'] ?? null),
-            failureCode: $error['code'] ?? null,
-            failureMessage: $error['message'] ?? null,
-            rates: $rates,
-            metadata: $metadata,
-            completedAt: $this->timestamp($body['completed_at'] ?? null),
-        );
-    }
-
-    private function timestamp(mixed $value): ?DateTimeImmutable
-    {
-        return is_string($value) && $value !== ''
-            ? new DateTimeImmutable($value)
-            : null;
-    }
-
-    /**
-     * The provider publishes exactly four statuses. An unrecognised one is
-     * raised rather than guessed at: silently mapping it onto a terminal state
-     * would charge for a generation whose outcome is not actually known.
-     */
-    private function translateStatus(string $status): GenerationStatus
-    {
-        return match ($status) {
-            'queued' => GenerationStatus::Queued,
-            'processing' => GenerationStatus::Processing,
-            'succeeded' => GenerationStatus::Succeeded,
-            'failed' => GenerationStatus::Failed,
-            default => throw new InvalidRequest("Unrecognised provider status: {$status}"),
-        };
     }
 }

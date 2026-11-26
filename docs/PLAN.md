@@ -28,7 +28,7 @@ The Dockerfile is multi-stage: a base image carrying only the extensions this ap
 
 Queue workers run as their own service rather than inside the web container, so restarting one does not interrupt the other and concurrency scales with `--scale worker=N`.
 
-**The tests run against Postgres, not SQLite.** The properties this application depends on are Postgres properties: partial unique indexes, `SELECT ... FOR UPDATE`, and the behaviour of unique-constraint violations under concurrent writes. SQLite reports those tests as passing without exercising them, which is worse than leaving them untested, because it hides the gap.
+**The tests run against Postgres, not SQLite.** The properties this application depends on are Postgres properties: partial unique indexes, row-level locking, the affected-row count of a conditional `UPDATE`, and the behaviour of unique-constraint violations under concurrent writes — including the fact that a failed statement aborts its whole transaction unless it is wrapped in a savepoint. SQLite reports those tests as passing without exercising them, which is worse than leaving them untested, because it hides the gap.
 
 One configuration bug surfaced here and is worth recording, because it fails quietly. PHPUnit writes its `<env>` entries to `$_ENV` and `putenv()` but not to `$_SERVER`, and Laravel's environment repository reads `$_SERVER` first. Under Compose, which injects `.env` into the container as real environment variables, the test settings were therefore ignored: the suite ran with `SESSION_DRIVER=database`, which breaks authenticated requests because the session write is rolled back with the `RefreshDatabase` transaction, and against the development database rather than the test one. `tests/bootstrap.php` mirrors `$_ENV` over `$_SERVER` before the application boots.
 
@@ -134,6 +134,8 @@ The tests fake the queue in `beforeEach`. The test connection is synchronous, so
 
 ## Phase 5 — Webhooks and charging
 
+**Status: complete.** 31 tests across the request, the inbox, the charging path and a separate concurrency suite.
+
 Signature verification middleware, the inbox insert, `ProcessWebhookEvent`, and an `ApplyProviderEvent` action shared with the reconciler in phase 7.
 
 Three separate mechanisms, each handling a distinct problem:
@@ -142,7 +144,7 @@ Three separate mechanisms, each handling a distinct problem:
 |---|---|
 | `provider_event_id` unique index | The same event delivered more than once |
 | Monotonic status rank | A stale event arriving after a later one |
-| `SELECT ... FOR UPDATE` | Two workers processing the same generation concurrently |
+| Compare-and-set on `status_rank` | Two workers processing the same generation concurrently |
 
 Charging is guarded twice — once at the event boundary by the inbox, and again at the ledger boundary by a unique index on `(generation_id, kind)`. The two fail independently, so neither alone is relied on.
 
@@ -150,9 +152,17 @@ Charging is guarded twice — once at the event boundary by the inbox, and again
 - `duplicate_webhook_delivery_charges_once`
 - `out_of_order_processing_after_succeeded_does_not_regress_state`
 - `failed_generation_creates_no_ledger_entry`
-- `concurrent_webhooks_for_same_generation_charge_once` — two database connections contending on the row lock, not a simulated race
+- `concurrent_webhooks_for_same_generation_charge_once` — two real database connections, in a suite that commits rather than running inside a transaction, because an uncommitted row is invisible to any other connection
 - `invalid_signature_is_rejected_and_stores_nothing`
 - `replayed_event_outside_the_timestamp_tolerance_is_rejected`
+
+**Three things surfaced while building it, each changing the implementation.**
+
+The guard became a compare-and-set rather than a row lock. The first version read the status, decided in PHP, then wrote — three operations with gaps between them, and two workers can both read the same status and both decide to apply. Claiming the transition with a single conditional `UPDATE` on `status_rank`, and reading its affected-row count as the decision, removes the gap instead of locking across it. The remaining columns are written through Eloquent afterwards in the same transaction, under a claim already won, because a query-builder update of the whole row would bypass the model's casts and write a `Money` object straight at a `bigint` column.
+
+Expected constraint violations need a savepoint. Both deduplication points — the inbox insert and the ledger insert — rely on a unique index refusing a second row, and catch the violation as a normal outcome. In Postgres a failed statement aborts the entire transaction it ran in, so catching the exception is not enough on its own: without a nested transaction to roll back to, the enclosing transaction is already dead and everything after it fails. The ledger case was the dangerous one, because the status change and the charge share a transaction, and the status change would have been lost at commit.
+
+Payload translation moved out of the HTTP client. The webhook path needs to read a generation object and nothing else, and type-hinting the concrete client to get at one method made the job unconstructable. `GenerationTranslator` now serves both callers, which is also the clearer statement: a webhook and a polled response carry the same object and are understood the same way.
 
 ---
 

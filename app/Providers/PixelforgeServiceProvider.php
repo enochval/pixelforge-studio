@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Providers;
 
 use App\Domain\Pricing;
+use App\Http\Middleware\VerifyPixelforgeSignature;
 use App\Integrations\Pixelforge\ConcurrencyLimiter;
 use App\Integrations\Pixelforge\Contracts\ImageProvider;
 use App\Integrations\Pixelforge\PixelforgeClient;
@@ -37,6 +38,14 @@ final class PixelforgeServiceProvider extends ServiceProvider
             baseUrl: (string) config('pixelforge.api.base_url'),
             apiKey: (string) config('pixelforge.api.key'),
             timeoutSeconds: (int) config('pixelforge.api.timeout_seconds'),
+        ));
+
+        // The signing secret is injected rather than read inside the
+        // middleware, so a test can verify the real verification logic against
+        // a known secret instead of against whatever the environment holds.
+        $this->app->bind(VerifyPixelforgeSignature::class, fn () => new VerifyPixelforgeSignature(
+            secret: (string) config('pixelforge.api.webhook_secret'),
+            toleranceSeconds: (int) config('pixelforge.webhooks.tolerance_seconds'),
         ));
 
         $this->app->singleton(RateCardRepository::class, fn ($app) => new RateCardRepository(

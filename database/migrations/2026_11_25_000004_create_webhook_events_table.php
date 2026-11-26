@@ -58,7 +58,7 @@ return new class extends Migration
         DB::statement(<<<'SQL'
             ALTER TABLE webhook_events
                 ADD CONSTRAINT webhook_events_outcome_check
-                CHECK (outcome IS NULL OR outcome IN ('applied', 'ignored_stale', 'orphaned'))
+                CHECK (outcome IS NULL OR outcome IN ('applied', 'ignored_stale', 'orphaned', 'acknowledged'))
         SQL);
     }
 

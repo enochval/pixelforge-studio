@@ -99,6 +99,33 @@ return [
             'sslmode' => env('DB_SSLMODE', 'prefer'),
         ],
 
+        /*
+         * A second connection to the same database, for the tests that have to
+         * prove behaviour between concurrent processes.
+         *
+         * A row lock only does anything across connections: a test using one
+         * connection twice would simply re-enter its own transaction and pass
+         * whether or not the lock existed. Two connections contend for real, so
+         * the test fails if the lock is removed.
+         *
+         * Identical settings to 'pgsql' on purpose — it is the same database,
+         * reached a second time.
+         */
+        'pgsql_second' => [
+            'driver' => 'pgsql',
+            'url' => env('DB_URL'),
+            'host' => env('DB_HOST', '127.0.0.1'),
+            'port' => env('DB_PORT', '5432'),
+            'database' => env('DB_DATABASE', 'laravel'),
+            'username' => env('DB_USERNAME', 'root'),
+            'password' => env('DB_PASSWORD', ''),
+            'charset' => env('DB_CHARSET', 'utf8'),
+            'prefix' => '',
+            'prefix_indexes' => true,
+            'search_path' => 'public',
+            'sslmode' => env('DB_SSLMODE', 'prefer'),
+        ],
+
         'sqlsrv' => [
             'driver' => 'sqlsrv',
             'url' => env('DB_URL'),

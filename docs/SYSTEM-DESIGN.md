@@ -108,7 +108,7 @@ sequenceDiagram
     else New delivery
         H->>J: ProcessWebhookEvent
         H-->>P: 200 OK
-        J->>DB: BEGIN; SELECT generation FOR UPDATE
+        J->>DB: BEGIN; UPDATE generation WHERE status_rank < rank
         alt No matching generation yet
             J->>DB: outcome = orphaned
         else Event is stale
@@ -132,7 +132,7 @@ These are easily conflated, and conflating them is the usual source of duplicate
 |---|---|---|
 | The same event, twice | A redelivery after a timeout | Unique index on `provider_event_id` |
 | Different events, wrong order | `processing` arriving after `succeeded` | Rank comparison in the state machine |
-| The same event, concurrently | Two workers, one generation | `SELECT … FOR UPDATE` |
+| The same event, concurrently | Two workers, one generation | Compare-and-set on `status_rank`; the loser's `UPDATE` affects no rows |
 
 Charging is additionally protected by a unique index on `(generation_id, kind)`. The inbox and that constraint fail independently, so a replay, a manual redelivery from the provider's dashboard, or the reconciler racing a webhook is refused by the database rather than by application logic.
 
@@ -209,7 +209,7 @@ Contention is per generation and per user, never global.
 | In-flight calls to the provider | Redis semaphore | A concurrency limit constrains simultaneous requests, which backoff alone does not address |
 | One generation submitted twice | `WithoutOverlapping` keyed on the generation | Prevents a duplicate submission before the provider ever sees it |
 
-Different shapes of contention take different tools. Using a row lock for the balance would hold it across the affordability decision for no benefit; using a conditional update for event processing would not cover a multi-statement section.
+Neither contended path takes a lock. Both resolve to a conditional update whose affected-row count carries the decision, leaving no window between checking and writing for a second worker to occupy. Where more columns follow — the cost and image URL on a succeeded generation — they are written in the same transaction, after the transition has been claimed, so no second worker can be writing them at the same time.
 
 ---
 
