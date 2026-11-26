@@ -183,8 +183,9 @@ It applies results through the same action the webhook handler uses. Two impleme
 | Provider rate limits a submission | Nothing; it is queued | Backoff honouring `Retry-After` |
 | Provider is overloaded | Nothing; it is queued | Exponential backoff with full jitter |
 | Provider concurrency limit reached | Nothing; it is queued | Semaphore releases the job back to the queue rather than holding a worker asleep |
+| Provider daily quota exhausted | Told that capacity has run out for the day | Not retried. The quota resets at UTC midnight, so no backoff within a job's lifetime can clear it, and retrying would spend every attempt against the per-minute allowance other work needs |
 | Submission times out | Generation stays pending | Treated as an unknown outcome. The idempotency key makes a retry safe; the reconciler resolves it |
-| Webhook never arrives | Status resolves within a minute | Reconciler polls the provider |
+| Webhook never arrives | Status resolves within a couple of minutes | Reconciler polls the provider. Delivery is explicitly not guaranteed, so this is the documented fallback rather than a precaution |
 | Webhook arrives before the submission response | Nothing | Event stored as `orphaned`, matched by the reconciler |
 | Webhook delivered twice | Nothing | Unique constraint refuses the second insert |
 | Webhooks delivered out of order | Nothing | Rank comparison ignores the stale event |
@@ -204,7 +205,7 @@ Contention is per generation and per user, never global.
 | Contended resource | Strategy | Why that one |
 |---|---|---|
 | A single generation during event processing | Row lock held for the transaction | The critical section spans several reads and writes |
-| A user's balance at submission | `UPDATE … WHERE balance_micros >= :amount`, checking the affected row count | The check and the deduction collapse into one atomic statement, holding no lock across application code |
+| A user's balance at submission | `UPDATE … WHERE balance_nanos >= :amount`, checking the affected row count | The check and the deduction collapse into one atomic statement, holding no lock across application code |
 | In-flight calls to the provider | Redis semaphore | A concurrency limit constrains simultaneous requests, which backoff alone does not address |
 | One generation submitted twice | `WithoutOverlapping` keyed on the generation | Prevents a duplicate submission before the provider ever sees it |
 
@@ -243,5 +244,5 @@ The webhook route is exempt from CSRF, since the provider is not a browser sessi
 
 - Every webhook delivery is retained with its raw payload and the outcome processing decided, so any disputed figure can be traced to what the provider actually sent.
 - Every movement of money is an immutable ledger entry; balances are derived, and a command asserts the cached balance matches the ledger.
-- Each generation stores both the estimate and the final charge, with the token counts behind each, so a difference between them can be explained rather than guessed at.
+- Each generation stores the quoted ceiling, the provider's cost and the final charge, with the token counts and the rates behind each, so a difference between them can be explained rather than guessed at.
 - The operator report compares recorded provider costs against the provider's own usage endpoint and shows the difference, which makes a drift in pricing visible rather than something discovered in a monthly invoice.

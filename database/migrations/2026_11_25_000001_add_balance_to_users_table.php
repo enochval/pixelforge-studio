@@ -17,16 +17,19 @@ return new class extends Migration
             // aggregating every entry.
             //
             // No check constraint forbids a negative value. A generation's
-            // actual cost can exceed the estimate that was held for it, and
-            // when it does the charge is recorded honestly rather than refused.
-            $table->bigInteger('balance_micros')->default(0)->after('password');
+            // actual cost should not exceed the ceiling held for it, but it can:
+            // the provider only guarantees the real text token count to within
+            // 15% of the estimate. When it does, the charge is recorded
+            // honestly rather than refused, because the provider has already
+            // billed for the work and the obligation exists either way.
+            $table->bigInteger('balance_nanos')->default(0)->after('password');
         });
     }
 
     public function down(): void
     {
         Schema::table('users', function (Blueprint $table) {
-            $table->dropColumn('balance_micros');
+            $table->dropColumn('balance_nanos');
         });
     }
 };

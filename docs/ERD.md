@@ -19,7 +19,7 @@ erDiagram
         bigint id PK
         string name
         string email UK
-        bigint balance_micros "cached sum of the ledger"
+        bigint balance_nanos "cached sum of the ledger"
         timestamptz created_at
         timestamptz updated_at
     }
@@ -35,13 +35,16 @@ erDiagram
         jsonb reference_image_urls
         text status "creating, queued, processing, succeeded, failed"
         smallint status_rank "ordering guard for unordered delivery"
-        bigint estimated_micros "shown to the user before submission"
-        jsonb estimated_usage "token counts the estimate assumed"
-        bigint provider_cost_micros "null until a successful outcome"
-        bigint charged_micros "provider cost plus markup"
-        jsonb usage "token counts the provider reported"
+        jsonb rates "the rates the provider fixed for this generation"
+        bigint quoted_nanos "the ceiling quoted before submission"
+        jsonb quoted_usage "the worst-case token counts behind the quote"
+        bigint provider_cost_nanos "null until a successful outcome"
+        bigint charged_nanos "provider cost plus markup"
+        jsonb usage "the four token counts the provider reported"
         text image_url
-        text failure_reason
+        timestamptz image_url_expires_at "signed URL; 24 hours after completion"
+        text failure_code
+        text failure_message
         timestamptz submitted_at
         timestamptz completed_at
         timestamptz created_at
@@ -53,7 +56,7 @@ erDiagram
         bigint user_id FK
         uuid generation_id FK "null for a credit purchase"
         text kind "hold, hold_release, charge, topup"
-        bigint amount_micros "signed; negative leaves the user"
+        bigint amount_nanos "signed; negative leaves the user"
         timestamptz created_at
     }
 
@@ -77,22 +80,25 @@ erDiagram
 
 Standard authentication, plus a single additional column.
 
-`balance_micros` is a **cache**, not the source of truth. The authoritative balance is `SUM(ledger_entries.amount_micros)` for that user. The cache is maintained in the same transaction as the entry that changes it, and an artisan command asserts the two agree. Keeping a cached column avoids aggregating the whole ledger on every page load; keeping the ledger authoritative means a disagreement is detectable rather than silent.
+`balance_nanos` is a **cache**, not the source of truth. The authoritative balance is `SUM(ledger_entries.amount_nanos)` for that user. The cache is maintained in the same transaction as the entry that changes it, and an artisan command asserts the two agree. Keeping a cached column avoids aggregating the whole ledger on every page load; keeping the ledger authoritative means a disagreement is detectable rather than silent.
 
 ### generations
 
 One row per request a user makes, created **before** the provider is contacted. A generation that is never accepted still has a row, which is what gives a webhook somewhere to land and the reconciler something to find.
 
-Four columns deserve explanation:
+Five columns deserve explanation:
 
 | Column | Why it exists |
 |---|---|
 | `idempotency_key` | Sent with the submission. A request that times out has an unknown outcome, not a failed one; the key makes retrying it safe rather than a second generation the user pays for. |
 | `status_rank` | A denormalised copy of the status ordering. Webhook delivery is unordered, and comparing ranks in the `UPDATE` makes "only move forward" a condition the database evaluates rather than a rule the application remembers. |
-| `estimated_micros` and `charged_micros` | Both are kept. The estimate is what the user agreed to and the charge is what they paid; overwriting one with the other would destroy the ability to explain a difference. |
-| `provider_cost_micros` | What the provider billed, held separately from what the user was charged, so profit is a stored subtraction and reconciliation against the provider's usage reporting is a direct comparison. |
+| `quoted_nanos` and `charged_nanos` | Both are kept. The quote is the ceiling the user agreed to and the charge is what they paid; overwriting one with the other would destroy the ability to explain a difference. The quote is deliberately a ceiling rather than an expectation: two of the four token counts are only known once a generation completes, so no exact figure exists beforehand, and a quote that could be exceeded is not one a user can rely on. |
+| `provider_cost_nanos` | What the provider billed, held separately from what the user was charged, so profit is a stored subtraction and reconciliation against `GET /v1/usage` is a direct comparison. |
+| `rates` | The provider fixes a generation's rates when it creates it and returns them on the create response. Published rates can change; these cannot. Recording them is what keeps a charge reproducible and lets a cost from months ago still be explained. |
 
-`usage` and `estimated_usage` retain the token counts behind each figure, so any price can be re-derived from the inputs that produced it.
+`usage` and `quoted_usage` retain the token counts behind each figure, so any price can be re-derived from the inputs that produced it.
+
+`failure_code` and `failure_message` are separate because they serve different readers: the code is what the application branches on and groups by, the message is what a user is shown.
 
 ### ledger_entries
 
@@ -164,15 +170,17 @@ A webhook can arrive before the generation row carries a provider identifier —
 
 The association is therefore resolved in application code, and an event that cannot yet be matched is stored with `outcome = 'orphaned'` and retried by the reconciler once the identifier is known.
 
-### Money is stored as bigint micro-dollars, not numeric
+### Money is stored as bigint nanodollars, not numeric
 
 Postgres `NUMERIC` would hold these values exactly. Integers were chosen because the guarantee then extends beyond the database: a `bigint` arrives in PHP as an `int` and cannot be silently coerced into a float by an arithmetic operation, whereas a `NUMERIC` arrives as a string and the first careless `+` turns it into one.
 
-One micro-dollar is a ten-thousandth of a cent, which is finer than any amount the provider reports, so nothing is lost by the choice.
+The unit is set by what the provider bills in. It reports costs to nine decimal places and states that amounts are never rounded, and one of its four rates — $12.50 per million reasoning tokens — works out at 12.5 micro-dollars per token. A cent-based or micro-dollar column could not hold that, and would lose real money on every generation.
+
+In nanodollars every published rate is a whole number per token, so a provider cost is a sum of integer products with nothing to round, and a recorded cost compares against the provider's own reporting digit for digit rather than within a tolerance.
 
 ### A balance may go negative, and no constraint forbids it
 
-A hold reserves the estimate, but a generation's actual cost can exceed it: the output token count is not knowable in advance. When that happens the release returns the estimate and the charge takes the true amount, which can leave the balance slightly below zero.
+A hold reserves the quoted ceiling, which the actual cost should not exceed — that is the point of quoting a ceiling rather than an expectation. It can still happen: the provider states the real text token count falls within 15% of the estimate, and a prompt whose characters tokenise worse than the published ratio can push past the band. When it does, the release returns the held amount and the charge takes the true one, which can leave the balance slightly below zero.
 
 Refusing the charge would be the worse outcome. The provider has already billed for the work, so the obligation exists whether or not it is recorded, and a constraint rejecting it would fail the transaction that is trying to record the truth. The hold bounds the exposure; it does not eliminate it.
 
@@ -188,9 +196,9 @@ This is deliberate denormalisation. `status` is what the application and the int
 
 | Step | Table | Effect |
 |---|---|---|
-| User submits | `generations` | Row inserted: `status = creating`, `estimated_micros` set |
-| | `ledger_entries` | `hold` for the estimate |
-| Provider accepts | `generations` | `provider_generation_id` and `submitted_at` set, `status = queued` |
+| User submits | `generations` | Row inserted: `status = creating`, `quoted_nanos` set |
+| | `ledger_entries` | `hold` for the quoted ceiling |
+| Provider accepts | `generations` | `provider_generation_id`, `rates` and `submitted_at` set, `status = queued` |
 | `processing` webhook | `webhook_events` | Stored, `outcome = applied` |
 | | `generations` | `status = processing` |
 | `succeeded` webhook | `webhook_events` | Stored, `outcome = applied` |

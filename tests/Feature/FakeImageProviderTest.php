@@ -18,7 +18,7 @@ use App\Integrations\Pixelforge\FakeImageProvider;
 function fakeSubmission(string $prompt = 'a cat', string $key = 'idem-1'): GenerationSubmission
 {
     return new GenerationSubmission(
-        request: new GenerationRequest($prompt, '1024x1024', 'standard'),
+        request: new GenerationRequest($prompt, '1024x1024', 'medium'),
         idempotencyKey: $key,
         clientReference: 'our-uuid-1',
     );
@@ -68,7 +68,7 @@ it('honours the sandbox keyword that forces a failure', function () {
     $result = $provider->submit(fakeSubmission(prompt: 'a cat [fail]'));
 
     expect($provider->fetch($result->providerGenerationId)->status)->toBe(GenerationStatus::Failed)
-        ->and($provider->fetch($result->providerGenerationId)->failureReason)->not->toBeNull();
+        ->and($provider->fetch($result->providerGenerationId)->failureCode)->toBe('generation_failed');
 });
 
 it('honours the sandbox keyword that holds a generation in progress', function () {
@@ -88,7 +88,7 @@ it('can be driven to a successful outcome with usage attached', function () {
     $generation = $provider->fetch($result->providerGenerationId);
 
     expect($generation->succeeded())->toBeTrue()
-        ->and($generation->usage->outputTokens)->toBe(1_056)
+        ->and($generation->usage->outputTokens)->toBe(1_100)
         ->and($generation->imageUrl)->not->toBeNull();
 });
 

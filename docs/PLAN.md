@@ -42,18 +42,22 @@ One configuration bug surfaced here and is worth recording, because it fails qui
 
 Pure PHP in `app/Domain/`. No Eloquent, no facades, no container — so it is unit-testable in milliseconds and the pricing rules can be read without reference to the framework.
 
-- **`Money`** — integer micro-dollars (1 USD = 1,000,000). Immutable. `fromUsd()` converts published rate strings via `bcmath`; `withMarkup(int $bps)` applies the markup and rounds half-up exactly once.
-- **`Pricing`** — table-driven from `config/pixelforge.php`. Two entry points, `estimate()` and `actual()`, used by both the interface and the charging path so the two cannot diverge.
-- **`GenerationState`** — the status enum, its rank ordering, and `canTransitionTo()`.
+- **`Money`** — integer nanodollars (1 USD = 1,000,000,000). Immutable. `fromUsd()` and `fromUsdPerMillionTokens()` convert the provider's decimal strings via `bcmath`; `withMarkup(int $bps)` applies the markup and rounds half away from zero exactly once.
+- **`RateCard`** — the four published per-token rates plus the token model, built either from `GET /v1/pricing` or from the rates recorded on a generation.
+- **`Pricing`** — two entry points. `quote()` produces the ceiling shown before submission; `providerCost()` produces the exact cost from the counts the provider reports. Both are used by the interface and the charging path, so the two cannot diverge.
+- **`TokenUsage`** — the four counts a generation is billed on.
+- **`GenerationStatus`** — the status enum, its rank ordering, and `canTransitionTo()`.
 
 **Tests**
 - `money_never_loses_precision_converting_published_rate_strings` — table-driven over every published rate. Float conversion of a decimal rate string silently truncates; this asserts it does not happen.
 - `markup_rounds_half_up_exactly_once` — asserts that marking up a raw cost differs from marking up an already-rounded cost, pinning the rounding point so it cannot drift later.
 - `state_transition_matrix` — every from/to pair, including the transitions that must be refused.
 
-**Closes with:** 73 unit tests covering the arithmetic and the transition matrix, running in 0.16 seconds with no database and no booted application, plus two feature tests asserting the shipped rate configuration is well formed and can price every size and quality it declares.
+**Closes with:** 98 unit tests covering the arithmetic and the transition matrix, running in 0.2 seconds with no database and no booted application, plus feature tests asserting the committed rate table is well formed, that it can quote every size and quality it accepts, and that a quote survives the pricing endpoint being unreachable.
 
-**Rates are provisional** until the published table is confirmed. They are read as configuration, so correcting them changes `config/pixelforge.php` alone. The unit tests fix their own rates rather than reading that file, so a corrected rate cannot quietly invalidate the arithmetic they assert.
+**The strongest of these reproduces the worked example from the provider's own documentation** — $0.373875000 for a high quality 1536x1024 generation with a 400-character prompt and two reference images — to the last digit. Matching a figure the provider published is better evidence that the pricing model was understood than any number this project could assert against itself.
+
+The unit tests write out the rates they assert against rather than reading configuration. These tests exist to catch a change in the arithmetic, not to agree with whatever the arithmetic currently produces.
 
 ---
 
@@ -61,7 +65,7 @@ Pure PHP in `app/Domain/`. No Eloquent, no facades, no container — so it is un
 
 **Status: complete.**
 
-Implements the model documented in [ERD.md](ERD.md): migrations for `generations`, `webhook_events` and `ledger_entries`, plus `balance_micros` on users. Every index carries a comment explaining what query or guarantee it serves. Models, casts, factories.
+Implements the model documented in [ERD.md](ERD.md): migrations for `generations`, `webhook_events` and `ledger_entries`, plus `balance_nanos` on users. Every index carries a comment explaining what query or guarantee it serves. Models, casts, factories.
 
 **Tests — these exercise the database rather than the code**
 - `duplicate_provider_event_id_is_rejected_by_the_database`
@@ -74,19 +78,21 @@ Beyond the two unique indexes, check constraints hold the status vocabulary, the
 
 **Closes with:** 23 constraint tests and 122 passing overall.
 
-Two things surfaced while writing them. Postgres aborts the surrounding transaction when a statement fails, and `RefreshDatabase` runs each test inside one — so asserting that a write is refused and then querying the result needs the attempt wrapped in a savepoint. And `balance_micros` is deliberately absent from the model's fillable attributes, because a balance must never be settable from request input.
+Two things surfaced while writing them. Postgres aborts the surrounding transaction when a statement fails, and `RefreshDatabase` runs each test inside one — so asserting that a write is refused and then querying the result needs the attempt wrapped in a savepoint. And `balance_nanos` is deliberately absent from the model's fillable attributes, because a balance must never be settable from request input.
 
 ---
 
 ## Phase 3 — Provider gateway
 
-**Status: complete against the in-memory implementation.** The HTTP client is written and tested against stubbed responses; its wire format is confirmed when the API documentation is read.
+**Status: complete.** Built first against the in-memory implementation, then corrected against the published documentation — see [PROVIDER-NOTES.md](PROVIDER-NOTES.md) for what each answer changed.
 
-An `ImageProvider` interface with two implementations: `PixelforgeClient` for real calls, and `FakeImageProvider` for tests and local development. Retry policy with full jitter, `Retry-After` handling, a distinct exception type per error category, and a Redis semaphore for the provider's concurrency limit.
+An `ImageProvider` interface with two implementations: `PixelforgeClient` for real calls, and `FakeImageProvider` for tests and local development. Retry policy with full jitter, `Retry-After` handling, a distinct exception type per error category, and a Redis semaphore for the provider's concurrency limit of three.
 
 Full jitter rather than fixed backoff: when the provider sheds load, fixed backoff retries every queued job at the same instant and reproduces the overload that caused the failure.
 
-The rest of the application depends on the interface, so this phase is buildable against the fake; the real client is completed once the API behaviour is confirmed from the documentation.
+Failures are dispatched on the provider's **error code**, not the HTTP status. Three unrelated conditions share status 429 — a per-minute rate limit, a cap on concurrent generations, and an exhausted daily quota — and they need waiting, releasing and stopping respectively. The status is kept only as a fallback for codes the provider might add later.
+
+The rest of the application depends on the interface rather than on the client, which is what let the phases above this one be built and tested before the provider was reachable at all.
 
 **Tests**
 - `retries_on_429_and_honours_retry_after`
@@ -152,14 +158,17 @@ Charging is guarded twice — once at the event boundary by the inbox, and again
 
 ## Phase 6 — Interface
 
-A generation form with a live, server-computed estimate, and a history view showing status, estimated and actual cost, the image, and a failure reason where there is one. Status updates via Inertia partial reloads, polling only while something is in flight.
+A generation form with a live, server-computed quote, and a history view showing status, the quote and the actual cost, the image, and a failure reason where there is one. Status updates via Inertia partial reloads, polling only while something is in flight.
 
-The estimate is computed server-side by the same `Pricing` class that performs the charge. A second rate table in JavaScript would eventually disagree with the first, and the price shown would stop matching the price charged.
+The quote is computed server-side by the same `Pricing` class that performs the charge. A second rate table in JavaScript would eventually disagree with the first, and the price shown would stop matching the price charged.
+
+It is presented as a ceiling — "up to" — because that is what it is. Two of the four token counts are only known once a generation completes, so quoting a single confident figure would be a claim the provider's own documentation does not support.
 
 **Tests**
-- `estimate_endpoint_returns_the_same_figure_the_charge_would_use`
-- `history_shows_estimated_and_actual_for_a_completed_generation`
+- `quote_endpoint_returns_the_same_ceiling_the_charge_is_measured_against`
+- `history_shows_the_quote_and_the_actual_cost_for_a_completed_generation`
 - `failed_generation_is_shown_as_free`
+- `an_expired_image_url_is_not_offered_as_a_live_link`
 
 ---
 
@@ -188,7 +197,7 @@ Deployed to Laravel Cloud with a separate API key for the deployed environment, 
 
 Holds and settlement rather than a direct deduction: a `hold` for the estimate at submit, then `hold_release` plus `charge` on success, or `hold_release` alone on failure. A failed generation therefore costs nothing, and the user's money is reserved only for as long as the generation runs.
 
-Affordability is enforced by a conditional `UPDATE ... WHERE balance_micros >= :amount` checked against the affected row count, so the check and the deduction are a single atomic statement rather than a read followed by a write.
+Affordability is enforced by a conditional `UPDATE ... WHERE balance_nanos >= :amount` checked against the affected row count, so the check and the deduction are a single atomic statement rather than a read followed by a write.
 
 **Tests**
 - `two_concurrent_submits_cannot_both_spend_the_same_balance`
@@ -219,22 +228,30 @@ Verified against the **deployed** application, not a local environment:
 
 - [ ] A duplicate webhook delivery results in exactly one ledger entry.
 - [ ] A failed generation is recorded as failed and charged nothing.
-- [ ] `SUM(ledger_entries.amount_micros)` equals `users.balance_micros` for every user.
+- [ ] `SUM(ledger_entries.amount_nanos)` equals `users.balance_nanos` for every user.
 - [ ] Recorded provider costs match `GET /v1/usage` exactly for the deployed key.
 - [ ] No generation is stuck in a non-terminal state.
 - [ ] The full suite passes, static analysis is clean, and CI is green.
 
 ---
 
-## Assumptions and open questions
+## The provider's contract
 
-Confirmed against the API documentation before phase 3 completes; the design is deliberately arranged so none of these answers changes its structure.
+Eight questions were identified as the ones that could affect the design, and the design
+was arranged so that none of their answers would change its structure. They are now all
+answered against the published documentation, and the answers are recorded in
+[PROVIDER-NOTES.md](PROVIDER-NOTES.md) alongside where each one shows up in the code.
 
-1. Whether the submit endpoint accepts an idempotency key.
-2. Whether a provider generation id is returned synchronously.
-3. Whether client-supplied metadata can be attached to a generation.
-4. What uniquely identifies a webhook event, as distinct from a delivery attempt.
-5. Whether events carry a sequence number or only a timestamp.
-6. The exact signature scheme and timestamp tolerance.
-7. The published rate table, and which token counts are known at submit time.
-8. The error taxonomy, and whether `Retry-After` is sent.
+Three of them changed real decisions rather than confirming them:
+
+| What the docs said | What changed |
+|---|---|
+| Costs are reported to nine decimal places and never rounded, and one rate is 12.5 micro-dollars per token | Money is nanodollars, not micro-dollars. Every rate then lands on a whole number per token, so a provider cost is exact and one rounding point disappears entirely |
+| Rates are read from `GET /v1/pricing`, but a generation's rates are fixed when it is created and returned on the generation | A quote prices from the cached endpoint; a charge prices from the rates recorded on the row. A stale table can make a quote wrong, never a charge |
+| Three unrelated conditions share HTTP status 429 | Failures dispatch on the provider's error code, not the status. A daily quota is no longer retried for ten minutes against a limit that resets at midnight |
+
+The five that confirmed the existing design: the submit endpoint takes an idempotency key
+and returns the generation id synchronously, client metadata is echoed on every webhook,
+events carry a unique id distinct from the delivery attempt, there is no sequence number
+so ordering is by state rank, and the signature is HMAC-SHA256 over
+`<timestamp>.<raw body>` with a 300-second tolerance.

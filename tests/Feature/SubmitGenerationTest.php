@@ -33,7 +33,7 @@ beforeEach(function () {
 
 function aRequest(string $prompt = 'a lighthouse at dusk'): GenerationRequest
 {
-    return new GenerationRequest($prompt, '1024x1024', 'standard');
+    return new GenerationRequest($prompt, '1024x1024', 'medium');
 }
 
 describe('accepting a generation', function () {
@@ -56,9 +56,9 @@ describe('accepting a generation', function () {
     it('records the price the user was shown', function () {
         $generation = app(SubmitGeneration::class)->execute(User::factory()->create(), aRequest());
 
-        expect($generation->estimated_micros->isZero())->toBeFalse()
-            ->and($generation->estimated_usage)->toHaveKeys(['input_tokens', 'output_tokens'])
-            ->and($generation->charged_micros)->toBeNull();
+        expect($generation->quoted_nanos->isZero())->toBeFalse()
+            ->and($generation->quoted_usage)->toHaveKeys(['input_text_tokens', 'input_image_tokens', 'output_tokens', 'reasoning_tokens'])
+            ->and($generation->charged_nanos)->toBeNull();
     });
 
     it('gives every generation its own idempotency key', function () {
@@ -161,8 +161,8 @@ describe('when the provider refuses', function () {
         $generation->refresh();
 
         expect($generation->status)->toBe(GenerationStatus::Failed)
-            ->and($generation->failure_reason)->toBe('prompt rejected')
-            ->and($generation->charged_micros)->toBeNull()
+            ->and($generation->failure_message)->toBe('prompt rejected')
+            ->and($generation->charged_nanos)->toBeNull()
             ->and($generation->completed_at)->not->toBeNull();
     });
 
@@ -205,8 +205,8 @@ describe('when every attempt is exhausted', function () {
         // A job that gave up quietly would leave the row in `creating` and a
         // user watching a status that will never change.
         expect($generation->status)->toBe(GenerationStatus::Failed)
-            ->and($generation->failure_reason)->toBe('still busy')
-            ->and($generation->charged_micros)->toBeNull();
+            ->and($generation->failure_message)->toBe('still busy')
+            ->and($generation->charged_nanos)->toBeNull();
     });
 
     it('leaves a generation that has already finished alone', function () {
@@ -220,7 +220,7 @@ describe('when every attempt is exhausted', function () {
 
 describe('the endpoint', function () {
     it('requires authentication', function () {
-        $this->post('/generations', ['prompt' => 'a cat', 'size' => '1024x1024', 'quality' => 'standard'])
+        $this->post('/generations', ['prompt' => 'a cat', 'size' => '1024x1024', 'quality' => 'medium'])
             ->assertRedirect('/login');
     });
 
@@ -230,7 +230,7 @@ describe('the endpoint', function () {
             ->post('/generations', [
                 'prompt' => 'a lighthouse at dusk',
                 'size' => '1024x1024',
-                'quality' => 'standard',
+                'quality' => 'medium',
             ])
             ->assertRedirect('/dashboard');
 
@@ -245,11 +245,11 @@ describe('the endpoint', function () {
 
         expect(Generation::count())->toBe(0);
     })->with([
-        'no prompt' => [['size' => '1024x1024', 'quality' => 'standard'], 'prompt'],
-        'unknown size' => [['prompt' => 'a cat', 'size' => '64x64', 'quality' => 'standard'], 'size'],
+        'no prompt' => [['size' => '1024x1024', 'quality' => 'medium'], 'prompt'],
+        'unknown size' => [['prompt' => 'a cat', 'size' => '64x64', 'quality' => 'medium'], 'size'],
         'unknown quality' => [['prompt' => 'a cat', 'size' => '1024x1024', 'quality' => 'ultra'], 'quality'],
         'reference that is not a url' => [[
-            'prompt' => 'a cat', 'size' => '1024x1024', 'quality' => 'standard',
+            'prompt' => 'a cat', 'size' => '1024x1024', 'quality' => 'medium',
             'reference_image_urls' => ['not-a-url'],
         ], 'reference_image_urls.0'],
     ]);

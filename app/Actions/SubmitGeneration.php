@@ -38,10 +38,11 @@ final readonly class SubmitGeneration
             'reference_image_urls' => $request->referenceImageUrls,
             'status' => GenerationStatus::Creating,
 
-            // The price the user was shown, recorded alongside what they are
-            // eventually charged so the two can be compared afterwards.
-            'estimated_micros' => $this->pricing->estimate($request),
-            'estimated_usage' => $this->pricing->estimatedUsage($request)->toArray(),
+            // The ceiling the user was quoted, recorded alongside what they are
+            // eventually charged so the two can be compared afterwards. See
+            // Pricing for why a quote is a ceiling and not an expectation.
+            'quoted_nanos' => $this->pricing->quote($request),
+            'quoted_usage' => $this->pricing->maximumUsage($request)->toArray(),
         ]);
 
         // afterCommit, because a job dispatched inside an uncommitted

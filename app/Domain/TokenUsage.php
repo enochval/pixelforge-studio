@@ -7,39 +7,71 @@ namespace App\Domain;
 use InvalidArgumentException;
 
 /**
- * Token counts for one generation.
+ * The four token counts a generation is billed on.
  *
- * Input tokens are derivable before submission; output tokens are only known
- * once the provider has finished. That asymmetry is the reason a generation
- * carries both an estimated and an actual cost.
+ * They are known at different times, and the difference is what shapes the
+ * charging design:
+ *
+ *   Output tokens are exact before submission — a published table by quality
+ *   and size.
+ *
+ *   Input image tokens are exact before submission — 765 per reference image.
+ *
+ *   Input text tokens are an approximation until the generation completes,
+ *   stated as within 15% of ceil(characters / 4) in either direction.
+ *
+ *   Reasoning tokens are unknown until completion and vary per generation,
+ *   bounded only by a range set by the chosen quality.
+ *
+ * So no exact figure exists before a generation runs, which is why what is
+ * shown up front is a ceiling and the amount charged is computed again from
+ * the counts the provider reports.
  */
 final readonly class TokenUsage
 {
     public function __construct(
-        public int $inputTokens,
+        public int $inputTextTokens,
+        public int $inputImageTokens,
         public int $outputTokens,
-        public int $referenceImages = 0,
+        public int $reasoningTokens,
     ) {
-        if ($inputTokens < 0 || $outputTokens < 0 || $referenceImages < 0) {
-            throw new InvalidArgumentException('Token counts cannot be negative.');
+        foreach (func_get_args() as $count) {
+            if ($count < 0) {
+                throw new InvalidArgumentException('Token counts cannot be negative.');
+            }
         }
     }
 
     public static function none(): self
     {
-        return new self(0, 0);
+        return new self(0, 0, 0, 0);
     }
 
     /**
-     * @param  array<string, int|null>  $payload
+     * Read the usage object the provider reports on a completed generation.
+     *
+     * The provider also sends total_tokens. It is deliberately not stored:
+     * it is the sum of the other four, and keeping a derived figure alongside
+     * its inputs invites the two to disagree.
+     *
+     * @param  array<string, mixed>  $usage
      */
-    public static function fromProviderPayload(array $payload): self
+    public static function fromProviderPayload(array $usage): self
     {
         return new self(
-            inputTokens: (int) ($payload['input_tokens'] ?? 0),
-            outputTokens: (int) ($payload['output_tokens'] ?? 0),
-            referenceImages: (int) ($payload['reference_images'] ?? 0),
+            inputTextTokens: (int) ($usage['input_text_tokens'] ?? 0),
+            inputImageTokens: (int) ($usage['input_image_tokens'] ?? 0),
+            outputTokens: (int) ($usage['output_tokens'] ?? 0),
+            reasoningTokens: (int) ($usage['reasoning_tokens'] ?? 0),
         );
+    }
+
+    public function totalTokens(): int
+    {
+        return $this->inputTextTokens
+            + $this->inputImageTokens
+            + $this->outputTokens
+            + $this->reasoningTokens;
     }
 
     /**
@@ -48,9 +80,18 @@ final readonly class TokenUsage
     public function toArray(): array
     {
         return [
-            'input_tokens' => $this->inputTokens,
+            'input_text_tokens' => $this->inputTextTokens,
+            'input_image_tokens' => $this->inputImageTokens,
             'output_tokens' => $this->outputTokens,
-            'reference_images' => $this->referenceImages,
+            'reasoning_tokens' => $this->reasoningTokens,
         ];
+    }
+
+    /**
+     * @param  array<string, mixed>  $stored
+     */
+    public static function fromArray(array $stored): self
+    {
+        return self::fromProviderPayload($stored);
     }
 }

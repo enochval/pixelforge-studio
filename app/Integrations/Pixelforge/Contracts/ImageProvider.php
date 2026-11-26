@@ -37,4 +37,21 @@ interface ImageProvider
      * @throws ProviderException
      */
     public function fetch(string $providerGenerationId): ProviderGeneration;
+
+    /**
+     * The provider's published rates and token model.
+     *
+     * Part of this boundary rather than of the HTTP client alone, because
+     * quoting a price is something the application does on every request and
+     * therefore something a test has to be able to do without a network.
+     *
+     * Returned in the provider's own shape rather than as a RateCard: this
+     * interface describes what the provider says, and interpreting it is
+     * RateCard's job.
+     *
+     * @return array<string, mixed>
+     *
+     * @throws ProviderException
+     */
+    public function pricing(): array;
 }

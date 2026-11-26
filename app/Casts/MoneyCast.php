@@ -10,7 +10,7 @@ use Illuminate\Database\Eloquent\Model;
 use InvalidArgumentException;
 
 /**
- * Converts a bigint column of micro-dollars to and from Money.
+ * Converts a bigint column of nanodollars to and from Money.
  *
  * The point is that no monetary value exists as a bare integer or a float
  * anywhere above the database. Reading a column gives a Money; writing one
@@ -30,7 +30,7 @@ final class MoneyCast implements CastsAttributes
      */
     public function get(Model $model, string $key, mixed $value, array $attributes): ?Money
     {
-        return $value === null ? null : Money::fromMicros((int) $value);
+        return $value === null ? null : Money::fromNanos((int) $value);
     }
 
     /**
@@ -48,6 +48,6 @@ final class MoneyCast implements CastsAttributes
             );
         }
 
-        return $value->micros;
+        return $value->nanos;
     }
 }

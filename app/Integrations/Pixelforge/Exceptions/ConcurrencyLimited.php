@@ -5,11 +5,15 @@ declare(strict_types=1);
 namespace App\Integrations\Pixelforge\Exceptions;
 
 /**
- * Too many requests in flight at once.
+ * Too many generations queued or processing at once — three, per the provider's
+ * published account limit.
  *
- * Distinct from a rate limit because waiting does not help unless something
- * else finishes first, which is why a job that sees this is released back to
- * the queue rather than made to sleep. See ConcurrencyLimiter.
+ * Arrives as 429 with Retry-After, the same status a rate limit and an
+ * exhausted daily quota use, and is told apart from them by the error code the
+ * provider sends. Distinct from a rate limit in what resolves it: waiting does
+ * not help unless one of our own in-flight generations finishes first. That is
+ * why a job seeing this is released back to the queue rather than made to
+ * sleep. See ConcurrencyLimiter.
  */
 final class ConcurrencyLimited extends ProviderException
 {

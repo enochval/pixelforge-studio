@@ -14,7 +14,9 @@ return new class extends Migration
         Schema::create('generations', function (Blueprint $table) {
             // The identifier is ours and is minted before the provider is
             // contacted, so a generation exists locally even if the submission
-            // never succeeds.
+            // never succeeds. It is also sent to the provider as metadata and
+            // comes back on every webhook, which is what lets a delivery be
+            // matched to this row before the provider's own id is known.
             $table->uuid('id')->primary();
             $table->foreignId('user_id')->constrained()->cascadeOnDelete();
 
@@ -40,17 +42,44 @@ return new class extends Migration
             // can write one value without the other.
             $table->smallInteger('status_rank');
 
-            // Both figures are kept. The estimate is what the user agreed to;
-            // the charge is what they paid. Overwriting one with the other
-            // would remove any way to explain a difference between them.
-            $table->bigInteger('estimated_micros');
-            $table->jsonb('estimated_usage')->nullable();
-            $table->bigInteger('provider_cost_micros')->nullable();
-            $table->bigInteger('charged_micros')->nullable();
+            // The rates the provider fixed for this generation when it created
+            // it, as returned on the create response. Published rates can
+            // change; these cannot, so a charge stays reproducible and a
+            // historical cost can still be explained months later.
+            $table->jsonb('rates')->nullable();
+
+            // Money is held in nanodollars throughout. The provider reports
+            // costs to nine decimal places and never rounds them, and some
+            // per-token rates are fractions of a nanodollar, so a coarser
+            // unit would lose real money on every generation. See App\Domain\Money.
+            //
+            // Three figures are kept rather than one. The quote is the ceiling
+            // the user agreed to; the provider cost is what the generation
+            // actually cost us and is what reconciles against GET /v1/usage;
+            // the charge is what the user paid. Collapsing any two of them
+            // removes the ability to explain a difference.
+            $table->bigInteger('quoted_nanos');
+            $table->jsonb('quoted_usage')->nullable();
+            $table->bigInteger('provider_cost_nanos')->nullable();
+            $table->bigInteger('charged_nanos')->nullable();
+
+            // The four token counts the provider reports on completion. Null
+            // until then, and never set for a failed generation, which is never
+            // billed.
             $table->jsonb('usage')->nullable();
 
+            // The provider's image URL is signed and stops working 24 hours
+            // after the generation completes, so the expiry is recorded rather
+            // than inferred: it decides whether the stored URL can still be
+            // shown or has to be refetched.
             $table->text('image_url')->nullable();
-            $table->text('failure_reason')->nullable();
+            $table->timestampTz('image_url_expires_at')->nullable();
+
+            // Kept apart because they serve different readers. The code is what
+            // the application branches on and groups by; the message is what a
+            // user is shown.
+            $table->string('failure_code')->nullable();
+            $table->text('failure_message')->nullable();
 
             $table->timestampTz('submitted_at')->nullable();
             $table->timestampTz('completed_at')->nullable();
@@ -73,7 +102,9 @@ return new class extends Migration
         SQL);
 
         // The status vocabulary belongs to the schema, not only to the enum, so
-        // a value outside it cannot be written by any path.
+        // a value outside it cannot be written by any path. 'creating' is this
+        // application's own: it covers a row that exists before the provider
+        // has accepted it, a state the provider has no name for.
         DB::statement(<<<'SQL'
             ALTER TABLE generations
                 ADD CONSTRAINT generations_status_check
@@ -91,20 +122,22 @@ return new class extends Migration
             ALTER TABLE generations
                 ADD CONSTRAINT generations_amounts_non_negative_check
                 CHECK (
-                    estimated_micros >= 0
-                    AND (provider_cost_micros IS NULL OR provider_cost_micros >= 0)
-                    AND (charged_micros IS NULL OR charged_micros >= 0)
+                    quoted_nanos >= 0
+                    AND (provider_cost_nanos IS NULL OR provider_cost_nanos >= 0)
+                    AND (charged_nanos IS NULL OR charged_nanos >= 0)
                 )
         SQL);
 
         // A generation that has succeeded has been priced; one that has not,
-        // has not. This prevents a half-applied outcome being recorded.
+        // has not. The provider bills only successful generations, so a failed
+        // one carrying a cost would be a charge with nothing behind it. This
+        // stops a half-applied outcome being recorded at all.
         DB::statement(<<<'SQL'
             ALTER TABLE generations
                 ADD CONSTRAINT generations_costs_match_outcome_check
                 CHECK (
-                    (status = 'succeeded' AND provider_cost_micros IS NOT NULL AND charged_micros IS NOT NULL)
-                    OR (status <> 'succeeded' AND provider_cost_micros IS NULL AND charged_micros IS NULL)
+                    (status = 'succeeded' AND provider_cost_nanos IS NOT NULL AND charged_nanos IS NOT NULL)
+                    OR (status <> 'succeeded' AND provider_cost_nanos IS NULL AND charged_nanos IS NULL)
                 )
         SQL);
     }

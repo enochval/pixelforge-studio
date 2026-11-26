@@ -24,7 +24,7 @@ return new class extends Migration
             // Signed: negative amounts leave the user. Holding the sign on the
             // amount rather than inferring it from the kind means a balance is
             // a plain SUM with nothing to get wrong at the point of reading.
-            $table->bigInteger('amount_micros');
+            $table->bigInteger('amount_nanos');
 
             // Append-only: there is no updated_at because no row is ever
             // modified. A correction is a new compensating entry.
@@ -61,8 +61,8 @@ return new class extends Migration
             ALTER TABLE ledger_entries
                 ADD CONSTRAINT ledger_entries_direction_check
                 CHECK (
-                    (kind IN ('topup', 'hold_release') AND amount_micros >= 0)
-                    OR (kind IN ('hold', 'charge') AND amount_micros <= 0)
+                    (kind IN ('topup', 'hold_release') AND amount_nanos >= 0)
+                    OR (kind IN ('hold', 'charge') AND amount_nanos <= 0)
                 )
         SQL);
 

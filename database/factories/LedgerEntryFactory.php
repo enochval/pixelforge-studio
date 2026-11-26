@@ -27,7 +27,7 @@ final class LedgerEntryFactory extends Factory
             'user_id' => User::factory(),
             'generation_id' => Generation::factory(),
             'kind' => LedgerEntryKind::Charge,
-            'amount_micros' => Money::fromUsd('-0.054050'),
+            'amount_nanos' => Money::fromUsd('-0.068200000'),
         ];
     }
 
@@ -36,7 +36,7 @@ final class LedgerEntryFactory extends Factory
         return $this->state(fn () => [
             'generation_id' => null,
             'kind' => LedgerEntryKind::Topup,
-            'amount_micros' => Money::fromUsd($usd),
+            'amount_nanos' => Money::fromUsd($usd),
         ]);
     }
 
@@ -44,7 +44,7 @@ final class LedgerEntryFactory extends Factory
     {
         return $this->state(fn () => [
             'kind' => LedgerEntryKind::Hold,
-            'amount_micros' => Money::fromUsd('-'.$usd),
+            'amount_nanos' => Money::fromUsd('-'.$usd),
         ]);
     }
 
@@ -52,7 +52,7 @@ final class LedgerEntryFactory extends Factory
     {
         return $this->state(fn () => [
             'kind' => LedgerEntryKind::HoldRelease,
-            'amount_micros' => Money::fromUsd($usd),
+            'amount_nanos' => Money::fromUsd($usd),
         ]);
     }
 }

@@ -46,7 +46,7 @@ class User extends Authenticatable
         return [
             'email_verified_at' => 'datetime',
             'password' => 'hashed',
-            'balance_micros' => MoneyCast::class,
+            'balance_nanos' => MoneyCast::class,
         ];
     }
 
@@ -69,12 +69,12 @@ class User extends Authenticatable
     /**
      * The authoritative balance, summed from the ledger.
      *
-     * `balance_micros` is a cache of this figure maintained alongside each
+     * `balance_nanos` is a cache of this figure maintained alongside each
      * entry. Reading the ledger directly is how the two are checked against
      * one another.
      */
     public function ledgerBalance(): Money
     {
-        return Money::fromMicros((int) $this->ledgerEntries()->sum('amount_micros'));
+        return Money::fromNanos((int) $this->ledgerEntries()->sum('amount_nanos'));
     }
 }

@@ -15,6 +15,7 @@ use DateTimeInterface;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
 use Illuminate\Queue\Middleware\WithoutOverlapping;
+use Illuminate\Support\Str;
 use Random\Randomizer;
 use Throwable;
 
@@ -115,7 +116,7 @@ final class SubmitGenerationToProvider implements ShouldQueue
 
             // The provider will not accept this request however often it is
             // repeated, so the user is told now rather than in ten minutes.
-            $this->markFailed($generation, $e->getMessage());
+            $this->markFailed($generation, $e);
 
             return;
         }
@@ -123,6 +124,13 @@ final class SubmitGenerationToProvider implements ShouldQueue
         $generation->update([
             'provider_generation_id' => $result->providerGenerationId,
             'status' => $result->status,
+
+            // The rates the provider fixed for this generation. Recorded now
+            // because the published table can change before the generation
+            // completes, and the charge has to be computed from the rates this
+            // one was created under.
+            'rates' => $result->rates,
+
             'submitted_at' => now(),
         ]);
     }
@@ -142,17 +150,24 @@ final class SubmitGenerationToProvider implements ShouldQueue
             return;
         }
 
-        $this->markFailed(
-            $generation,
-            $exception?->getMessage() ?? 'The generation could not be submitted.',
-        );
+        $this->markFailed($generation, $exception);
     }
 
-    private function markFailed(Generation $generation, string $reason): void
+    /**
+     * Close a generation that will never be submitted.
+     *
+     * The failure code is taken from the exception class rather than from the
+     * provider's message, so the reason a generation failed stays groupable
+     * once there are thousands of them. The message is what the user reads.
+     */
+    private function markFailed(Generation $generation, ?Throwable $cause): void
     {
         $generation->update([
             'status' => GenerationStatus::Failed,
-            'failure_reason' => $reason,
+            'failure_code' => $cause === null
+                ? 'submission_failed'
+                : Str::snake(class_basename($cause)),
+            'failure_message' => $cause?->getMessage() ?? 'The generation could not be submitted.',
             'completed_at' => now(),
         ]);
     }

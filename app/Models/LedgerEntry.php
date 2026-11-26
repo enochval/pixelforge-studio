@@ -29,7 +29,7 @@ final class LedgerEntry extends Model
         'user_id',
         'generation_id',
         'kind',
-        'amount_micros',
+        'amount_nanos',
     ];
 
     /**
@@ -39,7 +39,7 @@ final class LedgerEntry extends Model
     {
         return [
             'kind' => LedgerEntryKind::class,
-            'amount_micros' => MoneyCast::class,
+            'amount_nanos' => MoneyCast::class,
             'created_at' => 'datetime',
         ];
     }

@@ -26,13 +26,16 @@ use Illuminate\Support\Carbon;
  * @property array<int, string> $reference_image_urls
  * @property GenerationStatus $status
  * @property int $status_rank
- * @property Money $estimated_micros
- * @property array<string, int>|null $estimated_usage
- * @property Money|null $provider_cost_micros
- * @property Money|null $charged_micros
+ * @property Money $quoted_nanos
+ * @property array<string, int>|null $quoted_usage
+ * @property Money|null $provider_cost_nanos
+ * @property Money|null $charged_nanos
  * @property array<string, int>|null $usage
+ * @property array<string, string>|null $rates
  * @property string|null $image_url
- * @property string|null $failure_reason
+ * @property Carbon|null $image_url_expires_at
+ * @property string|null $failure_code
+ * @property string|null $failure_message
  * @property Carbon|null $submitted_at
  * @property Carbon|null $completed_at
  * @property Carbon $created_at
@@ -59,13 +62,16 @@ final class Generation extends Model
         'reference_image_urls',
         'status',
         'status_rank',
-        'estimated_micros',
-        'estimated_usage',
-        'provider_cost_micros',
-        'charged_micros',
+        'quoted_nanos',
+        'quoted_usage',
+        'provider_cost_nanos',
+        'charged_nanos',
         'usage',
+        'rates',
         'image_url',
-        'failure_reason',
+        'image_url_expires_at',
+        'failure_code',
+        'failure_message',
         'submitted_at',
         'completed_at',
     ];
@@ -93,11 +99,13 @@ final class Generation extends Model
         return [
             'status' => GenerationStatus::class,
             'reference_image_urls' => 'array',
-            'estimated_usage' => 'array',
+            'quoted_usage' => 'array',
             'usage' => 'array',
-            'estimated_micros' => MoneyCast::class,
-            'provider_cost_micros' => MoneyCast::class,
-            'charged_micros' => MoneyCast::class,
+            'rates' => 'array',
+            'quoted_nanos' => MoneyCast::class,
+            'provider_cost_nanos' => MoneyCast::class,
+            'charged_nanos' => MoneyCast::class,
+            'image_url_expires_at' => 'datetime',
             'submitted_at' => 'datetime',
             'completed_at' => 'datetime',
         ];

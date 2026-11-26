@@ -137,14 +137,14 @@ describe('vocabulary and direction', function () {
             ->update(['status' => 'cancelled'])))->toBeTrue();
     });
 
-    it('refuses a ledger entry whose amount contradicts its kind', function (string $kind, int $micros) {
+    it('refuses a ledger entry whose amount contradicts its kind', function (string $kind, int $nanos) {
         $generation = Generation::factory()->create();
 
         expect(databaseRefuses(fn () => DB::table('ledger_entries')->insert([
             'user_id' => $generation->user_id,
             'generation_id' => $generation->id,
             'kind' => $kind,
-            'amount_micros' => $micros,
+            'amount_nanos' => $nanos,
             'created_at' => now(),
         ])))->toBeTrue();
     })->with([
@@ -161,7 +161,7 @@ describe('vocabulary and direction', function () {
             'user_id' => $user->id,
             'generation_id' => null,
             'kind' => 'charge',
-            'amount_micros' => -1_000,
+            'amount_nanos' => -1_000,
             'created_at' => now(),
         ])))->toBeTrue();
     });
@@ -183,17 +183,17 @@ describe('costs and outcome agree', function () {
         expect(databaseRefuses(fn () => DB::table('generations')->where('id', $generation->id)->update([
             'status' => 'failed',
             'status_rank' => 3,
-            'provider_cost_micros' => 1_000,
-            'charged_micros' => 1_250,
+            'provider_cost_nanos' => 1_000,
+            'charged_nanos' => 1_250,
         ])))->toBeTrue();
     });
 
-    it('records both the estimate and the final charge on a successful generation', function () {
+    it('records the quote, the provider cost and the final charge on a successful generation', function () {
         $generation = Generation::factory()->succeeded()->create();
 
-        expect($generation->estimated_micros)->toBeInstanceOf(Money::class)
-            ->and($generation->charged_micros->toUsdString())->toBe('0.054050')
-            ->and($generation->provider_cost_micros->toUsdString())->toBe('0.043240');
+        expect($generation->quoted_nanos)->toBeInstanceOf(Money::class)
+            ->and($generation->charged_nanos->toUsdString())->toBe('0.068200000')
+            ->and($generation->provider_cost_nanos->toUsdString())->toBe('0.054560000');
     });
 });
 
@@ -204,8 +204,8 @@ describe('the status rank stays in step with the status', function () {
         $generation->status = $status;
 
         if ($status === GenerationStatus::Succeeded) {
-            $generation->provider_cost_micros = Money::fromUsd('0.01');
-            $generation->charged_micros = Money::fromUsd('0.0125');
+            $generation->provider_cost_nanos = Money::fromUsd('0.01');
+            $generation->charged_nanos = Money::fromUsd('0.0125');
         }
 
         $generation->save();
@@ -224,20 +224,20 @@ describe('money crossing the database boundary', function () {
     it('returns Money from every monetary column', function () {
         $user = User::factory()->create();
 
-        // balance_micros is intentionally absent from the model's fillable
+        // balance_nanos is intentionally absent from the model's fillable
         // attributes. A balance must never be settable from request input, so
         // it is assigned explicitly by the code entitled to change it.
-        $user->balance_micros = Money::fromUsd('5.00');
+        $user->balance_nanos = Money::fromUsd('5.00');
         $user->save();
 
-        expect($user->fresh()->balance_micros)->toBeInstanceOf(Money::class)
-            ->and($user->fresh()->balance_micros->toUsdString())->toBe('5.000000');
+        expect($user->fresh()->balance_nanos)->toBeInstanceOf(Money::class)
+            ->and($user->fresh()->balance_nanos->toUsdString())->toBe('5.000000000');
     });
 
     it('refuses to write a monetary column from a bare integer', function () {
         $user = User::factory()->create();
 
-        expect(fn () => $user->balance_micros = 1_000)
+        expect(fn () => $user->balance_nanos = 1_000)
             ->toThrow(InvalidArgumentException::class);
     });
 
@@ -248,9 +248,9 @@ describe('money crossing the database boundary', function () {
         LedgerEntry::factory()->create([
             'user_id' => $user->id,
             'generation_id' => Generation::factory()->succeeded()->create(['user_id' => $user->id])->id,
-            'amount_micros' => Money::fromUsd('-0.054050'),
+            'amount_nanos' => Money::fromUsd('-0.068200000'),
         ]);
 
-        expect($user->ledgerBalance()->toUsdString())->toBe('9.945950');
+        expect($user->ledgerBalance()->toUsdString())->toBe('9.931800000');
     });
 });

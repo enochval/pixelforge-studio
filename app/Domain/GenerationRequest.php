@@ -9,7 +9,7 @@ use InvalidArgumentException;
 /**
  * What a user asked for, independent of how it is stored or submitted.
  *
- * Carried into pricing so that an estimate can be produced before anything is
+ * Carried into pricing so that a price can be quoted before anything is
  * persisted or sent, which is what lets the interface show a cost before the
  * user commits to it.
  */
