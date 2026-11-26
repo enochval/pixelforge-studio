@@ -91,15 +91,19 @@ quote slightly wrong. It can never make a charge wrong.
 
 ## Exactly-once charging
 
-Four separate problems, each with its own mechanism. Conflating any two of them is the
-usual way a system like this ends up charging twice.
+Four separate problems. Treating any of them as the same problem is the usual way a system
+like this ends up charging twice.
 
-| Problem | Mechanism | Built |
-|---|---|---|
-| The same event delivered twice | `webhook_events.provider_event_id` UNIQUE — the transactional inbox | Schema in place |
-| A charge written twice for one generation | Partial unique index on `(generation_id, kind)` in `ledger_entries` | Schema in place |
-| Events applied out of order | Monotonic `status_rank` guard inside the `UPDATE` | Built |
-| Two workers processing one generation at once | A compare-and-set on `status_rank`: the transition is claimed by a conditional `UPDATE` whose affected-row count is the decision | Built |
+| Problem | Mechanism |
+|---|---|
+| The same event delivered twice | `webhook_events.provider_event_id` UNIQUE — the transactional inbox |
+| A charge written twice for one generation | Partial unique index on `(generation_id, kind)` in `ledger_entries` |
+| Events applied out of order | A compare-and-set on `status_rank`, whose affected-row count is the decision |
+| Two workers processing one generation at once | The same compare-and-set — the transition is claimed, not decided |
+
+The last two share a mechanism rather than needing one each. That is the reason for
+preferring a compare-and-set over a row lock: claiming a transition atomically answers both
+questions with one statement, and leaves no critical section to hold a lock across.
 
 The two unique constraints are deliberately in the schema rather than in application
 code. A uniqueness check performed by reading and then writing is not a guarantee; two

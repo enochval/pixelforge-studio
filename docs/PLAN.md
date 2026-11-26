@@ -138,13 +138,13 @@ The tests fake the queue in `beforeEach`. The test connection is synchronous, so
 
 Signature verification middleware, the inbox insert, `ProcessWebhookEvent`, and an `ApplyProviderEvent` action shared with the reconciler in phase 7.
 
-Three separate mechanisms, each handling a distinct problem:
+Four problems, three mechanisms:
 
 | Mechanism | Problem it solves |
 |---|---|
 | `provider_event_id` unique index | The same event delivered more than once |
-| Monotonic status rank | A stale event arriving after a later one |
-| Compare-and-set on `status_rank` | Two workers processing the same generation concurrently |
+| Partial unique index on `ledger_entries (generation_id, kind)` | A charge written twice for one generation |
+| Compare-and-set on `status_rank` | Both a stale event arriving after a later one, and two workers processing the same generation at once |
 
 Charging is guarded twice — once at the event boundary by the inbox, and again at the ledger boundary by a unique index on `(generation_id, kind)`. The two fail independently, so neither alone is relied on.
 

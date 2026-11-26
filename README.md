@@ -38,7 +38,7 @@ activity. Signing in lands on whichever application the account belongs to.
 
 | | |
 |---|---|
-| `make test` | 317 tests across three suites |
+| `make test` | The full suite: unit, feature, and a concurrency suite that runs outside a transaction |
 | `make check` | tests, static analysis (Larastan level 6) and style |
 | `make help` | everything else |
 
@@ -68,10 +68,10 @@ In nanodollars every published rate is a whole number per token, so a provider c
 sum of integer products with nothing to round. There is exactly one rounding point in the
 whole pricing path, and it is the margin.
 
-This is not hypothetical, and it does not need a worked example to see: at 12,500
-nanodollars per reasoning token, **any odd number of reasoning tokens produces a half
-micro-dollar.** `tests/Unit/PricingTest.php` reproduces the costing example from the
-provider's own documentation — $0.373875000 — to the last digit.
+At 12,500 nanodollars per reasoning token, **any odd number of reasoning tokens produces a
+half micro-dollar** — so this is not a rounding error waiting for an unusual input, it is
+most generations. `tests/Unit/PricingTest.php` reproduces the costing example from the
+provider's own documentation, $0.373875000, to the last digit.
 
 ### The price shown before submission is a ceiling, not an estimate
 
@@ -85,19 +85,23 @@ average cannot.
 
 ### Charging exactly once is the database's job, not the code's
 
-Four separate problems, each with its own mechanism. Conflating any two of them is the
-usual way a system like this charges twice.
+Four separate problems. Treating any of them as the same problem is the usual way a system
+like this charges twice.
 
 | Problem | Mechanism |
 |---|---|
 | The same event delivered twice | `UNIQUE (provider_event_id)` — a transactional inbox |
 | A charge written twice for one generation | `UNIQUE (generation_id, kind)`, partial |
 | Events applied out of order | A compare-and-set on `status_rank`; the loser's `UPDATE` affects no rows |
-| Two workers on one generation at once | The same compare-and-set — the transition is claimed, not decided |
+| Two workers on one generation at once | The same compare-and-set — the transition is *claimed*, not decided |
 
-None of these is a check performed in PHP. A uniqueness check that reads and then writes is
-not a guarantee: two requests can both read, both find nothing, and both write. The
-database is the only place the check and the write are the same operation.
+The last two share a mechanism rather than needing one each, and that is the point of
+choosing a compare-and-set over a lock: claiming a transition atomically answers "has this
+already been applied" and "is another worker applying it" with the same statement.
+
+None of the four is a check performed in PHP. A uniqueness check that reads and then writes
+is not a guarantee — two requests can both read, both find nothing, and both write. The
+database is the only place where the check and the write are one operation.
 
 ### The row is written before the provider is called
 
@@ -158,7 +162,7 @@ the conditional updates used everywhere else money moves here.
 
 ### On the command line
 
-The same figures, plus two checks:
+The scheduled work, and two things worth running by hand:
 
 | Command | |
 |---|---|

@@ -106,13 +106,16 @@ The tables, their constraints and the reasoning behind them are set out in [ERD.
 
 ### Concurrency and delivery guarantees
 
-Three distinct problems are handled by three distinct mechanisms, and conflating them is the usual source of double charges:
+Four distinct problems, and treating any of them as the same problem is the usual source of double charges:
 
 | Problem | Mechanism |
 |---|---|
 | The same event delivered more than once | Unique index on `webhook_events.provider_event_id` |
-| A stale event arriving after a later one | Monotonic rank comparison in the state machine |
-| Two workers processing one generation at the same time | Row-level lock for the duration of the transaction |
+| A charge written twice for one generation | Partial unique index on `ledger_entries (generation_id, kind)` |
+| A stale event arriving after a later one | Compare-and-set on `status_rank` |
+| Two workers processing one generation at the same time | The same compare-and-set |
+
+The last two share a mechanism rather than needing one each, which is the reason for preferring a compare-and-set over a lock: claiming a transition atomically answers both "has this already been applied" and "is another worker applying it" with one statement, and leaves no critical section to hold a lock across.
 
 Charging is additionally guarded at the ledger boundary by a unique index on `(generation_id, kind)`. The inbox and the ledger constraint fail independently, so neither is relied on alone — a replayed event, a manual redelivery or a reconciler racing a webhook is refused by the database rather than by application logic.
 
