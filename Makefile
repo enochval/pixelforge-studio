@@ -28,8 +28,25 @@ install: ## Install PHP dependencies (inside the container, never on the host)
 migrate: ## Run migrations
 	$(EXEC) php artisan migrate --force
 
-fresh-db: ## Drop and recreate the schema
+fresh-db: ## Drop and recreate the development schema (DESTROYS development data)
 	$(EXEC) php artisan migrate:fresh --force
+
+# The test database, named explicitly at the point of use.
+#
+# `--env=testing` does not work here and is a trap worth knowing about: Docker
+# Compose injects .env into the container as real environment variables, and
+# Laravel's Dotenv will not override a variable that already exists. So a
+# command carrying that flag reads the development database name and destroys
+# development data while appearing to do the opposite. An override passed to
+# `docker compose exec` is an actual environment variable, so it wins.
+#
+# The suite itself does not need this: phpunit.xml sets the test database with
+# force="true" on every entry, for the same reason.
+fresh-test-db: ## Drop and recreate the test schema
+	$(DC) exec -T -e DB_DATABASE=pixelforge_test app php artisan migrate:fresh --force
+
+seed-demo: ## Create a signed-in-able demo account with credit
+	$(EXEC) php artisan pixelforge:demo-user
 
 test: ## Run the test suite
 	$(EXEC) ./vendor/bin/pest
@@ -57,4 +74,4 @@ logs: ## Tail logs from every service
 build-prod: ## Verify the production image builds
 	docker build --target production -t pixelforge:production .
 
-.PHONY: help up down fresh install migrate fresh-db test analyse lint fix check shell psql logs build-prod
+.PHONY: help up down fresh install migrate fresh-db fresh-test-db seed-demo test analyse lint fix check shell psql logs build-prod

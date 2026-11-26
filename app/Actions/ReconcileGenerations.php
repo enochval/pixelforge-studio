@@ -166,8 +166,18 @@ final readonly class ReconcileGenerations
             ->get();
 
         foreach ($stale as $generation) {
+            $providerGenerationId = $generation->provider_generation_id;
+
+            // The query above excludes null ids, so this cannot normally be
+            // reached. It is checked anyway because the alternative to a cheap
+            // skip here is a type error inside a scheduled command, which fails
+            // silently every minute until someone reads the log.
+            if ($providerGenerationId === null) {
+                continue;
+            }
+
             try {
-                $current = $this->provider->fetch($generation->provider_generation_id);
+                $current = $this->provider->fetch($providerGenerationId);
             } catch (GenerationNotFound) {
                 // The provider has no such generation. Nothing to wait for and
                 // nothing to charge, so it is closed rather than polled for
@@ -175,7 +185,7 @@ final readonly class ReconcileGenerations
                 // application recorded an id the provider does not recognise.
                 Log::warning('Reconciler found a generation the provider does not recognise.', [
                     'generation_id' => $generation->id,
-                    'provider_generation_id' => $generation->provider_generation_id,
+                    'provider_generation_id' => $providerGenerationId,
                 ]);
 
                 $this->close($generation, 'not_found_at_provider', 'The provider has no record of this generation.');

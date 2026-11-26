@@ -161,7 +161,13 @@ holds a worker process hostage waiting for a condition another worker has to cle
 under load every worker ends up asleep waiting on every other.
 
 The published limits are 60 requests per minute, **3 concurrent generations**, and 500
-generations per UTC day, held in `config/pixelforge.php`.
+generations per UTC day.
+
+Only the concurrency ceiling is configured in the application, because it is the only one
+it has to hold itself to: waiting does not clear a concurrency limit unless one of our own
+generations finishes, so `ConcurrencyLimiter` stops requests being made that could only be
+rejected. The other two are the provider's to enforce, and it does, in a typed error — a
+second copy of a number it owns would be one more thing to keep in step for no gain.
 
 ---
 

@@ -24,24 +24,25 @@ return [
 
     /*
     |---------------------------------------------------------------------------
-    | Published limits
+    | Limits this application enforces
     |---------------------------------------------------------------------------
     |
-    | These are the provider's documented account limits, applied per account
-    | across all of its keys. They are held here so that the application can
-    | stay inside them rather than only react once a request has been rejected:
-    | a rejection still consumes a request against the per-minute allowance.
+    | Only the concurrency ceiling is here, because it is the only one of the
+    | provider's three account limits that this application has to hold itself
+    | to. Waiting does not clear a concurrency limit unless one of our own
+    | in-flight generations finishes, so the semaphore stops requests being
+    | made that could only be rejected.
+    |
+    | The per-minute and per-day limits are deliberately not mirrored here. The
+    | provider enforces them and says so in a typed error, and a second copy of
+    | a number it owns would be one more thing to keep in step for no gain.
+    | They are recorded in docs/PROVIDER-NOTES.md, where reference material
+    | about the contract belongs.
     |
     */
 
     'limits' => [
-        'requests_per_minute' => (int) env('PIXELFORGE_REQUESTS_PER_MINUTE', 60),
-
-        // Three generations queued or processing at once. A concurrency limit
-        // is not a rate limit, and backoff alone does not address it.
         'max_concurrent_generations' => (int) env('PIXELFORGE_MAX_CONCURRENT', 3),
-
-        'generations_per_day' => (int) env('PIXELFORGE_GENERATIONS_PER_DAY', 500),
     ],
 
     /*
