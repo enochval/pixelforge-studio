@@ -47,26 +47,6 @@ return [
 
     /*
     |---------------------------------------------------------------------------
-    | Operators
-    |---------------------------------------------------------------------------
-    |
-    | Who may see the operator report, by email address.
-    |
-    | Configuration rather than a role column, which is a deliberate choice for
-    | a system with one operator: a roles table, a pivot and a seeder would be
-    | three more things to maintain in order to express a list that currently
-    | has one entry. The authorisation itself goes through a Gate, so moving to
-    | a column later is a change to one closure rather than to every route.
-    |
-    */
-
-    'operators' => array_filter(array_map(
-        'trim',
-        explode(',', (string) env('PIXELFORGE_OPERATORS', 'demo@pixelforge.test')),
-    )),
-
-    /*
-    |---------------------------------------------------------------------------
     | Credit purchases
     |---------------------------------------------------------------------------
     |

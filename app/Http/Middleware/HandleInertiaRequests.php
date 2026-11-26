@@ -37,8 +37,16 @@ class HandleInertiaRequests extends Middleware
             'flash' => [
                 'status' => fn () => $request->session()->get('status'),
             ],
+            // Shaped rather than serialised whole. The shell needs a name, an
+            // address to show on hover, and which application this account
+            // belongs to — not a balance on every page, nor whatever columns
+            // the users table grows later.
             'auth' => [
-                'user' => $request->user(),
+                'user' => fn () => $request->user() === null ? null : [
+                    'name' => $request->user()->name,
+                    'email' => $request->user()->email,
+                    'is_operator' => $request->user()->isOperator(),
+                ],
             ],
         ];
     }

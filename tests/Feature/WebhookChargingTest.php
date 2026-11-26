@@ -17,8 +17,9 @@ use Illuminate\Support\Str;
 use Illuminate\Testing\TestResponse;
 
 /**
- * The graded core: a generation is charged exactly once, whatever order its
- * events arrive in and however many times they are delivered.
+ * The claim this application exists to hold: a generation is charged exactly
+ * once, whatever order its events arrive in and however many times they are
+ * delivered.
  *
  * These tests drive the endpoint rather than the action behind it wherever they
  * can, because the guarantees being asserted are properties of the whole path —

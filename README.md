@@ -21,10 +21,20 @@ Everything runs in Docker. Nothing uses the host's PHP or Node.
 
 ```bash
 make up          # build, install, start every service, migrate
-make seed-demo   # a demo account with credit: demo@pixelforge.test / password
+make seed-demo   # two demo accounts, both with password "password"
 ```
 
 Then open **http://localhost:8000**.
+
+| Account | Sees |
+|---|---|
+| `demo@pixelforge.test` | **Pixelforge Studio** — generate images, buy credit |
+| `operator@pixelforge.test` | **Pixelforge Console** — spend, margin and reconciliation |
+
+Two accounts because there are **two applications**, and neither can reach the other. An
+operator cannot generate: an account that reads every user's margin should not also be
+spending on the same balance, or a figure in the console would be partly the operator's own
+activity. Signing in lands on whichever application the account belongs to.
 
 | | |
 |---|---|
@@ -126,16 +136,29 @@ rather than refunded.
 
 ---
 
-## Operating it
+## The two applications
 
-Two screens beyond the generation page:
-
-| | |
+| Route | |
 |---|---|
-| `/generations` | **Buy credits** adds credit as a fake purchase — no payment is taken. Submitting is blocked when the balance cannot cover the quoted ceiling, reported as a field error rather than a server error |
-| `/operator` | Credit spend, provider cost and profit per day and per user, **and the reconciliation against `GET /v1/usage`**. Gated behind a `view-operator-report` ability, since it shows every user's spend and the margin taken on it |
+| `/generations` | Prompt, shape and detail as visible choices, because each one changes the price. The cost updates as you type and is stated as a ceiling. Generations appear as cards that shimmer while running and fill in when done, refreshed by a partial reload that stops once nothing is in flight |
+| `/checkout` | A simulated card payment, in two steps. Published test cards make each outcome reproducible: one succeeds, three decline in different ways |
+| `/operator` | Reconciliation first and largest, then totals, then spend by day and by user. Gated behind `view-operator-report` |
 
-And the same figures, plus two checks, on the command line:
+### The payment is simulated, and says so
+
+A single button that always succeeds never exercises what happens when a payment fails —
+and the thing on the other side of it adds money to a balance. So the flow has real
+failure paths, triggered by card number in the manner payment providers use for their test
+cards, which makes a decline reproducible rather than a coin toss.
+
+It also carries a **single-use intent**, issued by the server and claimed with
+`Cache::pull` so that reading and deleting are one operation. Without it, a double click or
+an impatient refresh would add the credit twice — the same gap, and the same reasoning, as
+the conditional updates used everywhere else money moves here.
+
+### On the command line
+
+The same figures, plus two checks:
 
 | Command | |
 |---|---|
@@ -152,8 +175,13 @@ itself whether or not it is right. A provider that cannot be reached is reported
 
 ## What is deliberately not here
 
-- **No real payments.** The "Buy credits" button adds credit and takes no money, as the
-  brief specifies. Taking payment is a different problem with a different provider.
+- **No real payments.** The checkout simulates a card and takes no money, as the brief
+  specifies. A real integration would need a webhook, a pending state and a reconciliation
+  of its own — which is the same problem this project already solves once, for a different
+  provider.
+- **No roles beyond the two.** `users.is_operator` is a boolean, not a role table. Two
+  roles do not need a join table, and the check sits behind a Gate so adding more later is
+  a change to one policy rather than to every route.
 - **No reference images in the interface.** The client sends them, validation accepts them
   and pricing bills them at 765 tokens each — but a URL list would be the largest part of
   that form and the smallest part of what it demonstrates.

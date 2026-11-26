@@ -7,24 +7,35 @@ namespace App\Policies;
 use App\Models\User;
 
 /**
- * Who may see the operator report.
+ * The line between the two applications.
  *
- * The report shows every user's spend and the margin taken on it, which is
- * commercial information about other people — so it is gated rather than left
- * to anyone who guesses the URL.
- *
- * Membership comes from configuration. A roles table for a list with one entry
- * would be three more things to maintain to express the same fact, and because
- * the check lives behind a single Gate, replacing configuration with a column
- * later is a change to one method rather than to every route.
+ * An operator reconciles spend and never generates images. A customer
+ * generates images and never sees another account's figures. Neither is a
+ * subset of the other, so both directions are stated here rather than one
+ * being inferred from the absence of the other — a reader should not have to
+ * work out what a customer is by elimination.
  */
 final readonly class OperatorPolicy
 {
+    /**
+     * The operator console: every user's spend, and the margin taken on it.
+     */
     public function viewReport(User $user): bool
     {
-        /** @var array<int, string> $operators */
-        $operators = config('pixelforge.operators');
+        return $user->isOperator();
+    }
 
-        return in_array($user->email, $operators, strict: true);
+    /**
+     * Generating, and everything that spends credit.
+     *
+     * Refused to operators on purpose. An account that can read every user's
+     * margin should not also be buying credit and generating images on the
+     * same balance — the two roles answer to different people, and keeping
+     * them apart means a figure in the console is never partly the operator's
+     * own activity.
+     */
+    public function generate(User $user): bool
+    {
+        return ! $user->isOperator();
     }
 }

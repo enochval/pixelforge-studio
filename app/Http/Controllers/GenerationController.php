@@ -37,15 +37,6 @@ final class GenerationController extends Controller
 
             'balance' => $request->user()->balance_nanos->nanos,
 
-            // Fixed server-side, so the browser chooses between amounts rather
-            // than naming one.
-            'creditPacks' => config('pixelforge.credit_packs'),
-
-            // Decides whether the link to the operator report is shown. The
-            // route is gated independently — this only avoids offering a link
-            // that would be refused.
-            'isOperator' => $request->user()->can('view-operator-report'),
-
             'generations' => $this->history($request),
         ]);
     }
@@ -123,6 +114,12 @@ final class GenerationController extends Controller
                 // a dead image is worse than none: it looks like the
                 // application lost the file.
                 'image_url' => $this->liveImageUrl($generation),
+
+                // Separate from a null URL, so the interface can say "expired"
+                // rather than "no image" — one is the provider's 24-hour window
+                // closing, the other means nothing was ever produced.
+                'image_url_expired' => $generation->image_url !== null
+                    && $this->liveImageUrl($generation) === null,
 
                 'failure_message' => $generation->failure_message,
                 'created_at' => $generation->created_at->toIso8601String(),

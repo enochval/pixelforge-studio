@@ -242,7 +242,13 @@ Deployed to Laravel Cloud with a separate API key for the deployed environment, 
 
 **Status: complete.** 12 tests for the ledger mechanics, plus 15 covering the screens in phase 10.
 
-The brief asks for three things here: track a balance, **add a "Buy credits" button** that adds credit as a fake purchase, and block generating when a user cannot afford it. All three are built. The button offers a fixed set of amounts chosen server-side, because an amount a client can name is an amount a client can forge — and the purchase goes through `Ledger::topUp()` like every other movement, so the balance invariant holds for bought credit too.
+The brief asks for three things here: track a balance, **add a "Buy credits" button** that adds credit as a fake purchase, and block generating when a user cannot afford it. All three are built, and the purchase became a flow rather than a button.
+
+A single button that always succeeds never exercises what happens when a payment fails, and the thing on the other side of it adds money to a balance. So `/checkout` is a two-step simulated card payment with real failure paths, selected by card number in the manner payment providers use for their test cards — which makes a decline reproducible rather than a coin toss. Amounts come from a fixed server-side list, because an amount a client can name is an amount a client can forge.
+
+It carries a **single-use intent**, issued by the server and claimed with `Cache::pull` so reading and deleting are one operation. Without it a double click or an impatient refresh would add the credit twice. A declined payment spends the intent too, deliberately: the submission genuinely happened and is finished with, so a retry starts from a fresh page rather than replaying one whose outcome is already known. Validation runs *before* the intent is claimed, so a mistyped expiry does not cost the payer their payment.
+
+The purchase goes through `Ledger::topUp()` like every other movement, so the balance invariant holds for bought credit too.
 
 Holds and settlement rather than a direct deduction: a `hold` for the quoted ceiling at submission, then `hold_release` plus `charge` on success, or `hold_release` alone on failure. A failed generation therefore costs nothing — the pair nets to zero — and a user's money is reserved only while the generation runs. Because the quote is a ceiling, a user can never be charged more than they agreed to.
 
@@ -273,7 +279,9 @@ Both mechanisms were checked by removing them: without the affordability conditi
 
 The brief asks for **a page for the operators** showing credit spend, provider costs and profit per day and per user, with provider costs matching `GET /v1/usage`. That is `/operator`, gated behind a `view-operator-report` ability. `pixelforge:report` gives the same figures on the command line, which is what a deployment gate or an on-call check wants rather than a browser.
 
-Authorisation reads a configured list of operator emails rather than a role column. A roles table, a pivot and a seeder would be three more things to maintain to express a list that currently has one entry, and because the check sits behind a Gate, moving to a column later is a change to one method rather than to every route.
+**The console is a separate application, not a page the customer screen hides.** An operator cannot generate: an account that reads every user's margin should not also be spending on the same balance, or a figure in the console would be partly the operator's own activity. `OperatorPolicy` states both directions, routing enforces `can:generate-images` as the rule, and a redirect handles the common case of landing on the wrong one.
+
+That made the role a property of the account rather than configuration — it decides which application signing in takes you to, so it is a boolean on `users`, absent from `$fillable` so no request can grant it. `pixelforge:demo-user` creates one account per application, because a single demo account would only ever show half the product.
 
 Both share one data layer. Spend, provider cost and profit are aggregated by the database rather than in PHP. Reading every generation and every ledger entry into memory to add them up would work on a demonstration dataset and fall over on a real one. Profit is a subtraction rather than a stored column, so it cannot disagree with the two figures it comes from.
 

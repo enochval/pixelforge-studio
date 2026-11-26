@@ -19,6 +19,7 @@ use Illuminate\Notifications\Notifiable;
  * @property string $name
  * @property string $email
  * @property Carbon|null $email_verified_at
+ * @property bool $is_operator
  * @property Money $balance_nanos
  */
 class User extends Authenticatable
@@ -59,6 +60,7 @@ class User extends Authenticatable
      */
     protected $attributes = [
         'balance_nanos' => 0,
+        'is_operator' => false,
     ];
 
     /**
@@ -70,9 +72,21 @@ class User extends Authenticatable
     {
         return [
             'email_verified_at' => 'datetime',
+            'is_operator' => 'boolean',
             'password' => 'hashed',
             'balance_nanos' => MoneyCast::class,
         ];
+    }
+
+    /**
+     * Whether this account runs the service rather than uses it.
+     *
+     * Deliberately absent from $fillable: an account cannot be promoted by
+     * anything that mass-assigns request input.
+     */
+    public function isOperator(): bool
+    {
+        return $this->is_operator;
     }
 
     /**

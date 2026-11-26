@@ -53,6 +53,23 @@ Transport, retry policy and concurrency control are three classes rather than on
 
 Use cases are Actions rather than service classes. `SubmitGeneration` and `ApplyProviderEvent` each name a thing the system does and expose one method. A `GenerationService` would accumulate unrelated responsibilities over time, and its name would stop describing its contents.
 
+### Two applications, not one with a hidden page
+
+An operator reconciles spend and never generates; a customer generates and never sees
+another account's figures. Neither is a subset of the other, so `OperatorPolicy` states
+both directions rather than inferring one from the absence of the other — a reader should
+not have to work out what a customer is by elimination.
+
+The role is a boolean on the user record rather than a list in configuration, because it
+decides *which application* signing in takes you to. That is a property of the account, and
+a list of addresses in an environment variable cannot be joined against or changed without
+a deployment. It is absent from `$fillable`, so no request can promote an account.
+
+Routing enforces it twice, for two different reasons. `can:generate-images` is the rule and
+holds for a request that skips the page entirely. `SendOperatorsToTheirConsole` is a
+convenience: landing on the wrong application is usually a bookmark rather than an attempt
+at anything, and a redirect is a more useful answer than a refusal.
+
 ### A server-driven interface
 
 The user interface is rendered through Inertia. There is no REST or GraphQL API serving the application's own screens, no client-side router, and no client store mirroring server state. Controllers return props; Vue renders them.
@@ -107,8 +124,9 @@ Both contended paths use a conditional update rather than a lock, for the same r
 
 | Pattern | Applied to | Purpose |
 |---|---|---|
-| Container and presentational split | `Pages/Generations/Index.vue` receives every prop; `GenerationRow` and `StatusBadge` take props and render | Data flows one way. The row and badge hold no state and make no requests, so what they show is entirely determined by what they are given. |
-| Persistent layout | `AuthenticatedLayout` | Survives navigation, so polling and transient UI state are not discarded on every visit. |
+| Container and presentational split | `Pages/` receive every prop; `GenerationCard`, `StatusBadge` and `OptionCards` take props and render | Data flows one way. The cards hold no state and make no requests, so what they show is entirely determined by what they are given. |
+| Persistent layout | `AppLayout`, with a `console` prop | One shell for both applications, because the chrome is the same; what differs is the accent and the one nav item. Survives navigation, so polling and transient UI state are not discarded on every visit. |
+| Single-use intent | `Cache::pull` on a server-issued checkout token | Makes a payment submittable once. Reading and then deleting would leave a window in which two submissions both find a valid intent. |
 | Form object | Inertia's `useForm` | Submission, validation errors and pending state handled in one place rather than in hand-written refs. |
 | Partial reload | `router.reload({ only: ['generations', 'balance'] })` | Refreshes two props instead of the page, so the form keeps what the user has typed. The interval stops once nothing is in flight. |
 | Composables | `useGenerationPolling`, `useMoney` | Vue's unit of reuse for shared reactive behaviour, without introducing a store. |
