@@ -10,6 +10,15 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 
+/**
+ * The declared $attributes default below makes PHPStan read balance_nanos as
+ * the raw int it is initialised with, so the cast's type is stated here.
+ *
+ * @property int $id
+ * @property string $name
+ * @property string $email
+ * @property Money $balance_nanos
+ */
 class User extends Authenticatable
 {
     /** @use HasFactory<UserFactory> */
@@ -34,6 +43,20 @@ class User extends Authenticatable
     protected $hidden = [
         'password',
         'remember_token',
+    ];
+
+    /**
+     * A new user has no credit, and the column defaults to zero.
+     *
+     * Declared here as well so a model that has not been round-tripped through
+     * the database still presents a balance. Without it the attribute is simply
+     * absent on a freshly created instance, the cast is handed null, and a
+     * balance reads as nothing rather than as zero.
+     *
+     * @var array<string, mixed>
+     */
+    protected $attributes = [
+        'balance_nanos' => 0,
     ];
 
     /**

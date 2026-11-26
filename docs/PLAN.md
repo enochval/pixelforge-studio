@@ -168,6 +168,8 @@ Payload translation moved out of the HTTP client. The webhook path needs to read
 
 ## Phase 6 — Interface
 
+**Status: complete.** 19 tests over the screen and the quote endpoint, plus a run against the live provider: a submission went out, came back 401 on a missing API key, and was closed as failed with no charge — which also confirmed the error taxonomy against the real service rather than against fixtures.
+
 A generation form with a live, server-computed quote, and a history view showing status, the quote and the actual cost, the image, and a failure reason where there is one. Status updates via Inertia partial reloads, polling only while something is in flight.
 
 The quote is computed server-side by the same `Pricing` class that performs the charge. A second rate table in JavaScript would eventually disagree with the first, and the price shown would stop matching the price charged.
@@ -179,6 +181,14 @@ It is presented as a ceiling — "up to" — because that is what it is. Two of 
 - `history_shows_the_quote_and_the_actual_cost_for_a_completed_generation`
 - `failed_generation_is_shown_as_free`
 - `an_expired_image_url_is_not_offered_as_a_live_link`
+- `one_user_never_sees_another_users_generations`
+- `internal_identifiers_are_not_sent_to_the_browser`
+
+**Reference images are not offered on the screen**, though the client sends them, validation accepts them and pricing bills them at 765 tokens each. A URL list would be the largest part of this form and the smallest part of what it demonstrates, so the capability stops at the API layer and the form keeps to one decision per field.
+
+**Two things worth noting.** The quote endpoint reuses the submit endpoint's validation rules by inheritance rather than restating them, because quoting a request that would then be refused shows a user a price for something they cannot have.
+
+And `users.balance_nanos` needed a model-level default. The column defaults to zero in the schema, but a freshly created model instance simply has no such attribute until it has been read back from the database — so the cast was handed null and a balance rendered as nothing rather than as zero.
 
 ---
 

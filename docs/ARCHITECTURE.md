@@ -107,12 +107,12 @@ Both contended paths use a conditional update rather than a lock, for the same r
 
 | Pattern | Applied to | Purpose |
 |---|---|---|
-| Container and presentational split | `Pages/` receive props; `Components/` take props and emit events | Keeps data flowing in one direction and leaves components independently testable. |
+| Container and presentational split | `Pages/Generations/Index.vue` receives every prop; `GenerationRow` and `StatusBadge` take props and render | Data flows one way. The row and badge hold no state and make no requests, so what they show is entirely determined by what they are given. |
 | Persistent layout | `AuthenticatedLayout` | Survives navigation, so polling and transient UI state are not discarded on every visit. |
 | Form object | Inertia's `useForm` | Submission, validation errors and pending state handled in one place rather than in hand-written refs. |
-| Partial reload | `router.reload({ only: ['generations'] })` | Refreshes a single prop instead of the page, and the interval stops once nothing is in flight. |
+| Partial reload | `router.reload({ only: ['generations', 'balance'] })` | Refreshes two props instead of the page, so the form keeps what the user has typed. The interval stops once nothing is in flight. |
 | Composables | `useGenerationPolling`, `useMoney` | Vue's unit of reuse for shared reactive behaviour, without introducing a store. |
-| Single formatting authority | `formatNanos()` over `Intl.NumberFormat` | One decision about how fractions of a cent are displayed, applied everywhere. |
+| Single formatting authority | `formatNanos()` wrapping `toLocaleString` | One decision about how fractions of a cent are displayed. A plain currency formatter rounds to two decimals, which would show a $0.0682 generation as $0.07 and leave a page of them visibly failing to add up to the balance beside it. |
 
 ---
 

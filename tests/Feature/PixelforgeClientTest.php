@@ -209,7 +209,7 @@ describe('reading a generation', function () {
             ->and($generation->isTerminal())->toBeTrue();
     });
 
-    it('maps the provider vocabulary onto this application s own', function (string $providerStatus, GenerationStatus $expected) {
+    it('maps the provider vocabulary onto this application\'s own', function (string $providerStatus, GenerationStatus $expected) {
         Http::fake(['*' => Http::response(['id' => 'gen_abc', 'status' => $providerStatus])]);
 
         expect(client()->fetch('gen_abc')->status)->toBe($expected);

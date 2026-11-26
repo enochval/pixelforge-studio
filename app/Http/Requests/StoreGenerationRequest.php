@@ -9,7 +9,7 @@ use App\Integrations\Pixelforge\RateCardRepository;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 
-final class StoreGenerationRequest extends FormRequest
+class StoreGenerationRequest extends FormRequest
 {
     /**
      * Sizes and qualities are validated against the live rate card rather than
